@@ -56,7 +56,7 @@ export function LedgerPage() {
       </header>
 
       {elections.isPending && (
-        <p className="muted" role="status">
+        <p className="muted ledger-pending" role="status">
           {health.rpc === "down"
             ? "Can't read the ledger while the chain is unreachable."
             : health.code === "missing"

@@ -111,7 +111,15 @@ export function useWalletController() {
   const connect = useConnect();
   const disconnect = useDisconnect();
   const switchChain = useSwitchChain();
-  const [hasProvider, setHasProvider] = useState<boolean | null>(null);
+  // Seed from window.ethereum synchronously so the first paint already has the right notice
+  // (avoids a layout shift); the async probe below refines it (EIP-6963 wallets, lock state).
+  const [hasProvider, setHasProvider] = useState<boolean | null>(() =>
+    typeof window !== "undefined" && "ethereum" in window && !!(window as { ethereum?: unknown }).ethereum
+      ? true
+      : connectors.some((c) => c.id !== "injected")
+        ? null
+        : false,
+  );
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<Curated | null>(null);
 

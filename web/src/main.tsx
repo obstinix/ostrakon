@@ -9,8 +9,15 @@ import "./styles/index.css";
 
 const root = createRoot(document.getElementById("root")!);
 
+/** Fetch the core faces alongside deployment.json so the first paint doesn't re-wrap on font swap. */
+function fontsReady(): Promise<unknown> {
+  const faces = ['400 1em "Public Sans"', '600 1em "Public Sans"', '700 1em "Public Sans"', '400 1em "IBM Plex Mono"', '500 1em "IBM Plex Mono"', '520 1em "Fraunces Variable"'];
+  const all = Promise.all(faces.map((f) => document.fonts.load(f))).catch(() => undefined);
+  return Promise.race([all, new Promise((r) => setTimeout(r, 800))]);
+}
+
 async function start() {
-  const load = await loadDeployment();
+  const [load] = await Promise.all([loadDeployment(), fontsReady()]);
   if (load.status !== "ok") {
     root.render(
       <StrictMode>

@@ -484,6 +484,10 @@ main:focus {
   font: 500 var(--step-3) / 1.1 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+.ledger-pending {
+  /* Reserve roughly the height of a typical ledger so the footer doesn't jump when rows arrive. */
+  min-height: 24rem;
+}
 .empty {
   border: 1px dashed var(--rule-strong);
   padding: var(--s-6);
