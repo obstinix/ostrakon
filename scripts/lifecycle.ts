@@ -20,7 +20,13 @@ function ok(label: string, cond: boolean) {
   console.log(`  ✓ ${label}`);
 }
 
-async function expectRejected(from: number, address: Address, fn: "vote", args: readonly unknown[], errorName: string) {
+async function expectRejected(
+  from: number,
+  address: Address,
+  fn: "vote" | "revealVote" | "commitVote",
+  args: readonly unknown[],
+  errorName: string,
+) {
   try {
     await publicClient().simulateContract({
       address,
@@ -104,6 +110,51 @@ try {
   const mine = await reads.findMyVotes(pc, C, BigInt(d.deployBlock), account(3).address);
   ok("findMyVotes finds exactly voter #3's vote via the indexed topic", mine.length === 1 && mine[0]!.args.candidateIndex === 1n);
   ok("log is in block order", log.every((l, i) => i === 0 || l.blockNumber >= log[i - 1]!.blockNumber));
+
+  // ---------------------------------------------------------------- secret ballot
+  console.log("▸ secret ballot: create, register, open");
+  await send(C, admin, "createSecretElection", ["Secret Check", ["Ada", "Grace", "Linus"], 0n, 0n, 0n]);
+  await send(C, admin, "registerVoters", [2n, voters]);
+  await send(C, admin, "advancePhase", [2n]);
+  let s = await reads.getElectionDetail(pc, C, 2n);
+  ok("secret election is in Voting, flagged secret", s.secret && s.phase === "Voting");
+
+  const choices: Record<number, bigint> = { 2: 2n, 3: 2n, 4: 0n, 5: 1n };
+  const salt = (i: number) => `0x${i.toString(16).padStart(2, "0").repeat(32)}` as const;
+  for (const i of [2, 3, 4, 5]) {
+    const c = reads.commitmentHash(Number(d.chainId), C, 2n, account(i).address, choices[i]!, salt(i));
+    await send(C, i, "commitVote", [2n, c]);
+  }
+  s = await reads.getElectionDetail(pc, C, 2n);
+  ok("4 sealed votes, 0 counted, tallies all zero while voting", s.committed === 4 && s.totalVotes === 0 && s.tallies.every((t) => t === 0));
+  const early = await expectRejected(2, C, "revealVote", [2n, choices[2], salt(2)], "WrongPhase");
+  ok(`reveal during Voting rejected: "${early.curated?.message}"`, early.matched);
+
+  console.log("▸ secret ballot: open reveal");
+  await send(C, admin, "advancePhase", [2n]);
+  ok("phase is Reveal", (await reads.getElectionDetail(pc, C, 2n)).phase === "Reveal");
+  const tampered = await expectRejected(3, C, "revealVote", [2n, 0n, salt(3)], "CommitmentMismatch");
+  ok(`reveal with a different choice rejected: "${tampered.curated?.message}"`, tampered.matched);
+  const stranger = await expectRejected(7, C, "revealVote", [2n, 0n, salt(7)], "NothingToReveal");
+  ok(`reveal without a sealed vote rejected: "${stranger.curated?.message}"`, stranger.matched);
+  for (const i of [2, 3, 4]) await send(C, i, "revealVote", [2n, choices[i]!, salt(i)]); // #5 never reveals
+  const twice = await expectRejected(2, C, "revealVote", [2n, choices[2], salt(2)], "AlreadyRevealed");
+  ok(`second reveal rejected: "${twice.curated?.message}"`, twice.matched);
+  const st5 = await reads.getVoterStatus(pc, C, 2n, account(5).address);
+  ok("voter #5: committed but not revealed", st5.voted && !st5.revealed);
+
+  console.log("▸ secret ballot: close reveal, finalize");
+  await send(C, admin, "advancePhase", [2n]);
+  await send(C, 7, "finalize", [2n]);
+  s = await reads.getElectionDetail(pc, C, 2n);
+  ok("tallies [1, 0, 2]: only revealed votes count", s.tallies.join() === "1,0,2");
+  ok("committed 4, counted 3", s.committed === 4 && s.totalVotes === 3);
+  ok("winner Linus (index 2)", s.finalized && !s.tie && s.winner === 2);
+  const slog = await reads.getAuditLog(pc, C, BigInt(d.deployBlock), { electionId: 2n });
+  ok("4 VoteCommitted, 3 Voted events", slog.filter((l) => l.eventName === "VoteCommitted").length === 4 && slog.filter((l) => l.eventName === "Voted").length === 3);
+  ok("3 PhaseChanged (Voting, Reveal, Ended)", slog.filter((l) => l.eventName === "PhaseChanged").length === 3);
+  const myCommits = await reads.findMyCommits(pc, C, BigInt(d.deployBlock), account(5).address);
+  ok("findMyCommits finds #5's sealed vote", myCommits.length === 1 && myCommits[0]!.electionId === 2n);
 
   console.log(`\nlifecycle: ${passed} assertions passed`);
 } catch (err) {

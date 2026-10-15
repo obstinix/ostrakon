@@ -1,12 +1,17 @@
-import type { PhaseName } from "../chain/reads";
+import { phasesFor, type PhaseName } from "../chain/reads";
 
-/** Phase label with a three-notch glyph (like tally marks scratched on a shard). */
-export function PhaseMark({ phase, index, finalized }: { phase: PhaseName; index: 0 | 1 | 2; finalized?: boolean }) {
+/**
+ * Phase label with one notch per phase this election goes through (three for open ballots, four
+ * for secret ballots), filled up to the current one, like tally marks scratched on a shard.
+ */
+export function PhaseMark({ phase, secret, finalized }: { phase: PhaseName; secret: boolean; finalized?: boolean }) {
+  const list = phasesFor({ secret });
+  const step = list.indexOf(phase);
   return (
-    <span className={`phase phase-${index}`}>
+    <span className={`phase phase-${phase}`}>
       <span className="phase-notches" aria-hidden="true">
-        {[0, 1, 2].map((i) => (
-          <i key={i} className={i <= index ? "on" : ""} />
+        {list.map((p, i) => (
+          <i key={p} className={i <= step ? "on" : ""} />
         ))}
       </span>
       {phase}

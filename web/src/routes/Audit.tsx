@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useAccount, useAuditLog, useElection, useElections, useMyVotes } from "../chain/hooks";
+import { useAccount, useAuditLog, useElection, useElections, useMyCommits, useMyVotes } from "../chain/hooks";
 import { PHASES, type AuditEntry } from "../chain/reads";
 import { useRuntime } from "../chain/runtime";
 import { Hex } from "../components/Copy";
@@ -10,6 +10,7 @@ const EVENTS: AuditEntry["eventName"][] = [
   "VoterRegistered",
   "PhaseChanged",
   "Voted",
+  "VoteCommitted",
   "Finalized",
   "AdminTransferred",
 ];
@@ -20,7 +21,8 @@ function Args({ ev }: { ev: AuditEntry }) {
   for (const [k, v] of Object.entries(a)) {
     if (k === "electionId") continue;
     let shown: React.ReactNode;
-    if (typeof v === "string" && /^0x[0-9a-fA-F]{40}$/.test(v)) shown = <Hex value={v} label={k} />;
+    // Addresses and 32-byte hashes (commitments) are shown truncated with a copy button.
+    if (typeof v === "string" && /^0x([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(v)) shown = <Hex value={v} label={k} />;
     else if ((k === "from" || k === "to") && typeof v === "number") shown = PHASES[v] ?? String(v);
     else if (Array.isArray(v)) shown = v.join(", ");
     else shown = String(v);
@@ -134,53 +136,92 @@ export function AuditPage() {
   );
 }
 
+interface MyRecord {
+  electionId: bigint;
+  commit?: AuditEntry;
+  vote?: AuditEntry;
+}
+
 function VerifyMyVote() {
   const account = useAccount();
   const votes = useMyVotes(account);
+  const commits = useMyCommits(account);
   const elections = useElections();
-  const names = new Map((elections.data ?? []).map((e) => [e.id.toString(), e]));
+  const byId = new Map((elections.data ?? []).map((e) => [e.id.toString(), e]));
+
+  const records = useMemo(() => {
+    const m = new Map<string, MyRecord>();
+    for (const c of commits.data ?? []) m.set(c.electionId.toString(), { electionId: c.electionId, commit: c });
+    for (const v of votes.data ?? []) {
+      const k = v.electionId.toString();
+      m.set(k, { ...(m.get(k) ?? { electionId: v.electionId }), vote: v });
+    }
+    return [...m.values()].sort((a, b) => (a.electionId < b.electionId ? -1 : 1));
+  }, [votes.data, commits.data]);
 
   return (
     <section id="verify" className="panel verify" aria-labelledby="verify-title" data-testid="verify">
       <h2 id="verify-title">Verify my vote</h2>
       {!account ? (
         <p>Connect a wallet to look up the votes recorded for that account.</p>
-      ) : votes.isPending ? (
+      ) : votes.isPending || commits.isPending ? (
         <p className="muted">Searching the logs for this account…</p>
-      ) : (votes.data ?? []).length === 0 ? (
+      ) : records.length === 0 ? (
         <p>The chain has no vote recorded from this account.</p>
       ) : (
         <>
           <p className="small">
-            Each row is a <code>Voted</code> event emitted by the contract for your address. That proves the vote was
-            accepted and counted in that election. Ostrakon ballots are not secret: the candidate is part of the public
-            record, for you and for everyone else.
+            Each row is what the contract recorded for your address. A <code>Voted</code> event proves the vote was
+            accepted and counted, and shows the candidate publicly. In a secret ballot, a <code>VoteCommitted</code>{" "}
+            event proves a sealed vote was accepted; the chain does not show the choice until you reveal it, and an
+            unrevealed vote is not counted.
           </p>
           <ul className="receipts">
-            {(votes.data ?? []).map((v) => {
-              const e = names.get(v.electionId.toString());
+            {records.map((r) => {
+              const e = byId.get(r.electionId.toString());
+              let state: string;
+              if (r.vote && r.commit) state = "Sealed, revealed and counted";
+              else if (r.vote) state = "Counted";
+              else if (e?.phase === "Ended") state = "Sealed but never revealed: not counted";
+              else state = "Sealed: choice hidden, not counted until you reveal it";
               return (
-                <li key={v.key} className="receipt">
+                <li key={r.electionId.toString()} className="receipt">
                   <p className="receipt-title">
-                    <Link to={`/e/${v.electionId.toString()}`}>
-                      #{v.electionId.toString()} {e?.name ?? ""}
-                    </Link>
+                    <Link to={`/e/${r.electionId.toString()}`}>
+                      #{r.electionId.toString()} {e?.name ?? ""}
+                    </Link>{" "}
+                    <span className="muted small">· {state}</span>
                   </p>
                   <dl className="kv">
+                    {r.commit && (
+                      <div>
+                        <dt>Sealed in block</dt>
+                        <dd>
+                          <span className="mono">{r.commit.blockNumber.toString()}</span>{" "}
+                          <Hex value={r.commit.txHash} label="sealed vote transaction hash" head={8} tail={6} />
+                        </dd>
+                      </div>
+                    )}
+                    {r.vote && (
+                      <div>
+                        <dt>{r.commit ? "Revealed in block" : "Block"}</dt>
+                        <dd>
+                          <span className="mono">{r.vote.blockNumber.toString()}</span>{" "}
+                          <Hex value={r.vote.txHash} label="vote transaction hash" head={8} tail={6} />
+                        </dd>
+                      </div>
+                    )}
                     <div>
-                      <dt>Block</dt>
-                      <dd className="mono">{v.blockNumber.toString()}</dd>
-                    </div>
-                    <div>
-                      <dt>Transaction</dt>
+                      <dt>Candidate</dt>
                       <dd>
-                        <Hex value={v.txHash} label="vote transaction hash" head={10} tail={8} />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Candidate (public)</dt>
-                      <dd>
-                        <CandidateName electionId={v.electionId} index={Number(v.args.candidateIndex)} />
+                        {r.vote ? (
+                          <>
+                            <CandidateName electionId={r.electionId} index={Number(r.vote.args.candidateIndex)} />{" "}
+                            <span className="muted small">(public)</span>
+                          </>
+                        ) : (
+                          <span className="muted">hidden on chain</span>
+                        )}
                       </dd>
                     </div>
                   </dl>

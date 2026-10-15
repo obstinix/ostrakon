@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { getAddress, isAddress } from "viem";
 import { useAccount, useElection, useVoters } from "../chain/hooks";
-import { PHASES, type ElectionDetail } from "../chain/reads";
+import { phasesFor, phaseStep, type ElectionDetail } from "../chain/reads";
 import { isBusy, useTx } from "../chain/tx";
 import { Hex } from "../components/Copy";
 import { Pending } from "../components/Pending";
@@ -53,7 +53,7 @@ export function ManagePage() {
         </p>
         <h1 id="m-title">{e.name}</h1>
         <div className="el-meta">
-          <PhaseMark phase={e.phase} index={e.phaseIndex} finalized={e.finalized} />
+          <PhaseMark phase={e.phase} secret={e.secret} finalized={e.finalized} />
           <span className="small">
             {plural(e.voterCount, "registered voter")} · {plural(e.totalVotes, "vote")}
           </span>
@@ -73,23 +73,31 @@ function PhaseControl({ e }: { e: ElectionDetail }) {
   const tx = useTx();
   const nowSec = BigInt(Math.floor(useNow() / 1000));
   let action: { label: string; blockedBy?: string } | null = null;
-  if (e.phaseIndex === 0) {
+  if (e.phase === "Registration") {
     action = {
       label: "Open voting",
       blockedBy: e.votingStart && e.votingStart > nowSec ? `Scheduled to open at ${fmtTime(e.votingStart)}.` : undefined,
     };
-  } else if (e.phaseIndex === 1) {
+  } else if (e.phase === "Voting") {
     action = {
-      label: "Close voting",
+      label: e.secret ? "Close voting, open reveal" : "Close voting",
       blockedBy: e.votingEnd && e.votingEnd > nowSec ? `Scheduled to close at ${fmtTime(e.votingEnd)}.` : undefined,
     };
+  } else if (e.phase === "Reveal") {
+    action = {
+      label: "Close reveal",
+      blockedBy:
+        e.revealEnd && e.revealEnd > nowSec ? `Reveal is scheduled to close at ${fmtTime(e.revealEnd)}.` : undefined,
+    };
   }
+  const list = phasesFor(e);
+  const step = phaseStep(e);
   return (
     <section className="panel" aria-labelledby="pc-title">
       <h2 id="pc-title">Phase</h2>
       <ol className="phase-steps">
-        {PHASES.map((p, i) => (
-          <li key={p} className={i < e.phaseIndex ? "done" : i === e.phaseIndex ? "now" : ""}>
+        {list.map((p, i) => (
+          <li key={p} className={i < step ? "done" : i === step ? "now" : ""}>
             {p}
           </li>
         ))}
@@ -108,7 +116,7 @@ function PhaseControl({ e }: { e: ElectionDetail }) {
           {action.blockedBy && <p className="small">{action.blockedBy}</p>}
         </>
       )}
-      {e.phaseIndex === 2 && !e.finalized && (
+      {e.phase === "Ended" && !e.finalized && (
         <button
           type="button"
           className="btn btn-solid"
@@ -133,7 +141,7 @@ function RegisterVoters({ e }: { e: ElectionDetail }) {
   const preview = useMemo(() => previewVoters(raw, registered), [raw, registered]);
   const batches = chunk(preview.add, MAX_BATCH);
 
-  if (e.phaseIndex !== 0) {
+  if (e.phase !== "Registration") {
     return (
       <section className="panel" aria-labelledby="rv-title">
         <h2 id="rv-title">Register voters</h2>

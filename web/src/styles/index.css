@@ -242,13 +242,14 @@ main:focus {
   background: currentColor;
   border-color: currentColor;
 }
-.phase-0 {
+.phase-Registration {
   color: var(--ochre);
 }
-.phase-1 {
+.phase-Voting,
+.phase-Reveal {
   color: var(--clay-deep);
 }
-.phase-2 {
+.phase-Ended {
   color: var(--ink-2);
 }
 .phase-final {
@@ -559,6 +560,54 @@ main:focus {
 }
 .row-label {
   display: none;
+}
+.row-sealed {
+  display: block;
+  font: 600 0.68rem / 1.2 var(--font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* secret ballot */
+.secret-note {
+  max-width: var(--measure);
+  border-left: 3px solid var(--ink);
+  padding-left: var(--s-3);
+  margin-top: var(--s-3);
+}
+.sealed {
+  font: 600 0.72rem / 1 var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px dashed var(--rule-strong);
+  padding: 0.2rem 0.35rem;
+}
+.ballot-mode {
+  grid-template-columns: 1fr;
+}
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-3);
+  align-items: start;
+  font-size: var(--step--1);
+  cursor: pointer;
+}
+.choice input {
+  width: auto;
+  min-height: 0;
+  margin-top: 0.2rem;
+  accent-color: var(--clay);
+}
+.panel-body {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+.panel-body .field,
+.reveal-paste {
+  justify-self: stretch;
 }
 .row-actions {
   text-align: right;
@@ -1203,6 +1252,9 @@ select:focus-visible {
     font-family: var(--font-body);
     font-size: var(--step--1);
     color: var(--ink-3);
+  }
+  .row-sealed {
+    display: none; /* the mobile label already says "Sealed" */
   }
   .row-you {
     grid-area: you;

@@ -1,14 +1,16 @@
-// Seeds a demo world: five elections across every phase, with demo voters in different states.
-import type { Address } from "viem";
-import { account, publicClient, send } from "./chain.ts";
+// Seeds a demo world: six elections across every phase and both ballot modes, with demo voters in
+// different states.
+import { keccak256, toHex, type Address } from "viem";
+import { commitmentHash } from "../../web/src/chain/reads.ts";
+import { account, CHAIN_ID, publicClient, send } from "./chain.ts";
 
 export const ROLES: Record<number, string> = {
-  0: "Admin of #1 Student Council, #3 Robotics Club, #5 Hostel Mess (deployer)",
+  0: "Admin of #1 Student Council, #3 Robotics Club, #5 Hostel Mess, #6 Sports Captain (deployer)",
   1: "Admin of #2 Library Hours, #4 Cultural Fest",
-  2: "Voter: voted #1, #3, #4 · registered #2, #5",
-  3: "Voter: voted #1, #3, #4 · registered #2, #5",
-  4: "Voter: voted #1, #3 · registered #5",
-  5: "Voter: registered #1 (not voted), voted #3",
+  2: "Voter: voted #1, #3, #4 · sealed a secret vote in #6 · registered #2, #5",
+  3: "Voter: voted #1, #3, #4 · sealed a secret vote in #6 · registered #2, #5",
+  4: "Voter: voted #1, #3 · registered #5 · can seal a secret vote in #6",
+  5: "Voter: registered #1 (not voted), voted #3 · can seal a secret vote in #6",
   6: "Voter: registered #1 (not voted)",
   7: "Not registered anywhere (use to see the read-only / ineligible states)",
 };
@@ -74,4 +76,24 @@ export async function seed(contract: Address): Promise<void> {
     now + 2n * 86_400n,
   ]);
   await send(contract, 0, "registerVoters", [5n, many(2, 3, 4)]);
+
+  // #6 Secret ballot (commit-reveal) in Voting: #2 and #3 have sealed votes; #4 and #5 can seal theirs.
+  // Demo salts are derived from a fixed string, so these two sealed votes stay sealed in the UI
+  // (their receipts live only here). Real voters get random salts from the app.
+  await send(contract, 0, "createSecretElection", [
+    "Sports Captain (secret ballot)",
+    ["Devika Rane", "Omkar Joshi", "Neha Bhosale"],
+    0n,
+    0n,
+    0n,
+  ]);
+  await send(contract, 0, "registerVoters", [6n, many(2, 3, 4, 5)]);
+  await send(contract, 0, "advancePhase", [6n]);
+  for (const [who, choice] of [
+    [2, 0n],
+    [3, 2n],
+  ] as const) {
+    const salt = keccak256(toHex(`ostrakon-demo-seed-${who}`));
+    await send(contract, who, "commitVote", [6n, commitmentHash(CHAIN_ID, contract, 6n, addr(who), choice, salt)]);
+  }
 }

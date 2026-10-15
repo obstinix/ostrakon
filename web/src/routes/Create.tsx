@@ -15,10 +15,19 @@ export interface CreateCheck {
   problems: string[];
   start: bigint;
   end: bigint;
+  revealEnd: bigint;
 }
 
 /** Mirrors the contract's validation so the form can explain problems before anything is sent. */
-export function checkCreate(nameRaw: string, candidatesRaw: string, startRaw: string, endRaw: string, now: number): CreateCheck {
+export function checkCreate(
+  nameRaw: string,
+  candidatesRaw: string,
+  startRaw: string,
+  endRaw: string,
+  now: number,
+  secret = false,
+  revealEndRaw = "",
+): CreateCheck {
   const name = nameRaw.trim();
   const candidates = candidatesRaw
     .split("\n")
@@ -41,9 +50,12 @@ export function checkCreate(nameRaw: string, candidatesRaw: string, startRaw: st
   const toUnix = (v: string) => (v ? BigInt(Math.floor(new Date(v).getTime() / 1000)) : 0n);
   const start = toUnix(startRaw);
   const end = toUnix(endRaw);
+  const revealEnd = secret ? toUnix(revealEndRaw) : 0n;
   if (end !== 0n && end <= BigInt(Math.floor(now / 1000))) problems.push("The voting end must be in the future.");
   if (start !== 0n && end !== 0n && start >= end) problems.push("Voting must start before it ends.");
-  return { name, candidates, problems, start, end };
+  if (revealEnd !== 0n && end === 0n) problems.push("A scheduled reveal close needs a scheduled voting close too.");
+  if (revealEnd !== 0n && end !== 0n && revealEnd <= end) problems.push("The reveal must close after voting closes.");
+  return { name, candidates, problems, start, end, revealEnd };
 }
 
 export function CreatePage() {
@@ -54,19 +66,29 @@ export function CreatePage() {
   const [cands, setCands] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [secret, setSecret] = useState(false);
+  const [revealEnd, setRevealEnd] = useState("");
   const [touched, setTouched] = useState(false);
 
   const now = useNow(5_000);
-  const check = useMemo(() => checkCreate(name, cands, start, end, now), [name, cands, start, end, now]);
+  const check = useMemo(
+    () => checkCreate(name, cands, start, end, now, secret, revealEnd),
+    [name, cands, start, end, now, secret, revealEnd],
+  );
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setTouched(true);
     if (check.problems.length) return;
-    const receipt = await tx.run({
-      functionName: "createElection",
-      args: [check.name, check.candidates, check.start, check.end],
-    });
+    const receipt = secret
+      ? await tx.run({
+          functionName: "createSecretElection",
+          args: [check.name, check.candidates, check.start, check.end, check.revealEnd],
+        })
+      : await tx.run({
+          functionName: "createElection",
+          args: [check.name, check.candidates, check.start, check.end],
+        });
     if (!receipt) return;
     const created = decodeLogs(receipt.logs).find((l) => l.eventName === "ElectionCreated");
     if (created) navigate(`/e/${created.electionId.toString()}`);
@@ -97,6 +119,23 @@ export function CreatePage() {
           <textarea value={cands} onChange={(e) => setCands(e.target.value)} rows={6} spellCheck={false} />
           <small className="mono">{check.candidates.length} listed · 2 to 32 · each up to 64 bytes</small>
         </label>
+        <fieldset className="field-row ballot-mode">
+          <legend>Ballot</legend>
+          <label className="choice">
+            <input type="radio" name="mode" checked={!secret} onChange={() => setSecret(false)} />
+            <span>
+              <strong>Open ballot.</strong> Each vote is counted when cast and is public immediately.
+            </span>
+          </label>
+          <label className="choice">
+            <input type="radio" name="mode" checked={secret} onChange={() => setSecret(true)} />
+            <span>
+              <strong>Secret ballot (commit–reveal).</strong> Voters seal their choice during Voting and reveal it in
+              an extra Reveal phase. Choices are hidden until reveal, then public. Sealed votes that are never
+              revealed are not counted.
+            </span>
+          </label>
+        </fieldset>
         <fieldset className="field-row">
           <legend>Schedule (optional)</legend>
           <label className="field">
@@ -107,8 +146,14 @@ export function CreatePage() {
             <span>Voting closes</span>
             <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
           </label>
+          {secret && (
+            <label className="field">
+              <span>Reveal closes</span>
+              <input type="datetime-local" value={revealEnd} onChange={(e) => setRevealEnd(e.target.value)} />
+            </label>
+          )}
           <p className="muted small">
-            Leave both empty to move phases by hand. A time you set is binding: you can't open or close early.
+            Leave times empty to move phases by hand. A time you set is binding: you can't open or close early.
           </p>
         </fieldset>
         {touched && check.problems.length > 0 && (

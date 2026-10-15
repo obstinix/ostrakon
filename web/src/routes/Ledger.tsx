@@ -23,7 +23,7 @@ export function LedgerPage() {
 
   const list = elections.data ?? [];
   const totalVotes = list.reduce((n, e) => n + e.totalVotes, 0);
-  const open = list.filter((e) => e.phaseIndex === 1).length;
+  const open = list.filter((e) => e.phase === "Voting").length;
 
   return (
     <section className="page" aria-labelledby="ledger-title">
@@ -115,9 +115,15 @@ function LedgerRow({ e, status, isAdmin, connected, created }: {
   const id = e.id.toString();
 
   const tags: { label: string; tone: string }[] = [];
+  const closed = e.phase === "Ended" || e.phase === "Reveal";
   if (isAdmin) tags.push({ label: "Admin", tone: "ink" });
-  if (status?.voted) tags.push({ label: "Voted", tone: "olive" });
-  else if (status?.registered) tags.push({ label: e.phaseIndex === 2 ? "Did not vote" : "Registered", tone: "clay" });
+  if (e.secret && status?.revealed) tags.push({ label: "Revealed", tone: "olive" });
+  else if (e.secret && status?.voted)
+    tags.push({ label: e.phase === "Ended" ? "Not revealed" : "Sealed", tone: e.phase === "Ended" ? "clay" : "olive" });
+  else if (status?.voted) tags.push({ label: "Voted", tone: "olive" });
+  else if (status?.registered) tags.push({ label: closed ? "Did not vote" : "Registered", tone: "clay" });
+  // Secret ballots count only revealed votes; while voting is open, show how many are sealed instead.
+  const sealedPhase = e.secret && (e.phase === "Registration" || e.phase === "Voting");
 
   return (
     <article className={`row ${open ? "row-open" : ""}`} aria-labelledby={`e-${id}`}>
@@ -128,14 +134,16 @@ function LedgerRow({ e, status, isAdmin, connected, created }: {
         </h2>
         <p className="muted small">
           {plural(e.candidateCount, "candidate")} · {plural(e.voterCount, "voter")}
+          {e.secret && " · secret ballot"}
         </p>
       </div>
       <span className="row-phase">
-        <PhaseMark phase={e.phase} index={e.phaseIndex} finalized={e.finalized} />
+        <PhaseMark phase={e.phase} secret={e.secret} finalized={e.finalized} />
       </span>
       <span className="row-votes mono">
-        <span className="row-label">Votes </span>
-        <CountUp value={e.totalVotes} />
+        <span className="row-label">{sealedPhase ? "Sealed " : "Votes "}</span>
+        <CountUp value={sealedPhase ? e.committed : e.totalVotes} />
+        {sealedPhase && <span className="row-sealed">sealed</span>}
       </span>
       <span className="row-you">
         {tags.length ? (

@@ -4,7 +4,9 @@ import type { Address, EIP1193Provider } from "viem";
 import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 import { decodeError, type Curated } from "./errors";
 import {
+  findMyCommits,
   findMyVotes,
+  getCommitment,
   getAllVoters,
   getAuditLog,
   getElectionDetail,
@@ -57,6 +59,27 @@ export function useVoterStatus(id: bigint | null, account: Address | undefined) 
     queryKey: [...base, "status", id?.toString(), account],
     queryFn: () => getVoterStatus(runtime.client, runtime.deployment.address, id!, account!),
     enabled: useReady() && id !== null && !!account,
+  });
+}
+
+/** Secret ballot: the account's on-chain commitment (zero hash if none). */
+export function useCommitment(id: bigint | null, account: Address | undefined, enabled = true) {
+  const { runtime } = useRuntime();
+  const base = useKeyBase();
+  return useQuery({
+    queryKey: [...base, "commitment", id?.toString(), account],
+    queryFn: () => getCommitment(runtime.client, runtime.deployment.address, id!, account!),
+    enabled: useReady() && id !== null && !!account && enabled,
+  });
+}
+
+export function useMyCommits(account: Address | undefined) {
+  const { runtime } = useRuntime();
+  const base = useKeyBase();
+  return useQuery({
+    queryKey: [...base, "myCommits", account],
+    queryFn: () => findMyCommits(runtime.client, runtime.deployment.address, runtime.deployBlock, account!),
+    enabled: useReady() && !!account,
   });
 }
 

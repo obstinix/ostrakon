@@ -48,6 +48,13 @@ export const CONTRACT_ERROR_COPY: Record<string, ArgsMapper> = {
   InvalidCandidate: () => "That candidate does not exist.",
   AlreadyFinalized: () => "The result has already been finalized.",
   PageTooLarge: () => "That request asked for too much at once.",
+  SecretBallot: () => "This is a secret ballot: seal your vote instead of casting it openly.",
+  NotSecretBallot: () => "This election uses open ballots; there is nothing to seal or reveal.",
+  EmptyCommitment: () => "The sealed vote was empty. Nothing was sent.",
+  NothingToReveal: () => "This account has no sealed vote to reveal in this election.",
+  AlreadyRevealed: () => "This vote has already been revealed and counted.",
+  CommitmentMismatch: () =>
+    "That receipt doesn't match the sealed vote on chain. Check that it is the receipt for this account and election.",
 };
 
 export const GENERIC: Curated = { code: "unknown", message: "Something went wrong. Nothing was changed." };

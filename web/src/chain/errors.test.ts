@@ -26,7 +26,7 @@ describe("decodeError", () => {
   });
 
   it("maps a revert by name, with typed args", () => {
-    const e = revert("WrongPhase", [1n, 1, 2]);
+    const e = revert("WrongPhase", [1n, 1, 3]);
     expect(decodeError(e)).toEqual({
       code: "WrongPhase",
       message: "That needs the Voting phase, but the election is in Ended.",
