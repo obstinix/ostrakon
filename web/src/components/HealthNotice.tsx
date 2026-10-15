@@ -20,7 +20,7 @@ export function HealthNotice() {
       body: (
         <>
           Nothing is answering at <code>{runtime.deployment.rpcUrl}</code>. If you are running locally, start it again
-          with <code>npm run dev</code>. This page reconnects by itself.
+          with <code>npm run dev</code>. This page reconnects by itself; until then it shows the last data it read.
         </>
       ),
     });
@@ -32,8 +32,9 @@ export function HealthNotice() {
       body: (
         <>
           The chain is up, but there's no contract code at <code>{short(runtime.deployment.address, 10, 6)}</code>.
-          This usually means the local chain restarted and lost its state since the app was deployed. Stop the dev
-          command and run <code>npm run dev</code> again to redeploy, then reload.
+          This usually means the local chain restarted and lost its state. Run <code>npm run chain:deploy</code> to
+          deploy and seed it again; this page picks it up by itself. Anything still shown below was read before the
+          restart and is not on this chain.
         </>
       ),
     });

@@ -293,3 +293,39 @@ test("reduced motion: final values render immediately, no transitions", async ({
   const duration = await page.locator(".bar-fill").first().evaluate((el) => getComputedStyle(el).transitionDuration);
   expect(duration).toBe("0s");
 });
+
+test("stale deployment (no code at the saved address) is explained, not blank", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__OSTRAKON_E2E__ = { mock: false };
+  });
+  await page.route("**/deployment.json", async (route) => {
+    const real = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...real, address: ACC[7] } }); // an EOA: no contract code
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("notice-stale")).toContainText("isn't at the saved address");
+  await expect(page.getByTestId("notice-stale")).toContainText("npm run chain:deploy");
+  await expect(page.getByRole("status").filter({ hasText: "no contract at the saved address" })).toBeVisible();
+  await assertNoRawErrors(page);
+});
+
+test("unreachable chain is explained, not blank", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__OSTRAKON_E2E__ = { mock: false };
+  });
+  await page.route("**/deployment.json", async (route) => {
+    const real = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...real, rpcUrl: "http://127.0.0.1:1", wsUrl: undefined } });
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("notice-rpc-down")).toContainText("Can't reach the chain", { timeout: 8_000 });
+  await expect(page.getByRole("status").filter({ hasText: "chain is unreachable" })).toBeVisible();
+  await assertNoRawErrors(page);
+});
+
+test("missing deployment.json explains how to get one", async ({ page }) => {
+  await page.route("**/deployment.json", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "No contract to read yet" })).toBeVisible();
+  await expect(page.locator(".cmd")).toHaveText("npm run dev");
+});

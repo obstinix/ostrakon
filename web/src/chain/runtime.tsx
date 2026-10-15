@@ -22,6 +22,8 @@ export interface Runtime {
   deployment: Deployment;
   chain: Chain;
   client: PublicClient;
+  /** Fail-fast HTTP client for liveness checks (no retries, short timeout). */
+  health: PublicClient;
   wagmi: Config;
   deployBlock: bigint;
 }
@@ -40,13 +42,17 @@ export function createRuntime(deployment: Deployment, connectors: CreateConnecto
     ? fallback([webSocket(deployment.wsUrl, { retryCount: 1 }), http(deployment.rpcUrl)])
     : http(deployment.rpcUrl);
   const client = createPublicClient({ chain, transport, pollingInterval: 1_000 }) as PublicClient;
+  const health = createPublicClient({
+    chain,
+    transport: http(deployment.rpcUrl, { retryCount: 0, timeout: 2_500 }),
+  }) as PublicClient;
   const wagmi = createConfig({
     chains: [chain],
     connectors,
     transports: { [chain.id]: http(deployment.rpcUrl) },
     multiInjectedProviderDiscovery: true,
   });
-  return { deployment, chain, client, wagmi, deployBlock: BigInt(deployment.deployBlock) };
+  return { deployment, chain, client, health, wagmi, deployBlock: BigInt(deployment.deployBlock) };
 }
 
 // ------------------------------------------------------------------ health
@@ -104,49 +110,59 @@ function ChainWatcher({ runtime, children }: { runtime: Runtime; children: React
   const [health, setHealth] = useState<Health>({ rpc: "checking", code: "checking", block: null, resets: 0 });
   const [live, setLive] = useState<AuditEntry[]>([]);
   const lastBlock = useRef<bigint | null>(null);
-  const rpcUp = useRef(false);
+  const rpcUp = useRef<boolean | null>(null);
   const { client, deployment } = runtime;
 
-  // Block number + chain reset detection + code presence. One eth_blockNumber per second.
+  // Block number + chain reset detection + code presence. One eth_blockNumber per second on a
+  // no-retry HTTP client, so an outage shows within ~2s. viem's watchBlockNumber is not used here:
+  // it ignores block numbers that go backwards, which is exactly what a restarted chain does.
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const { health: probe } = runtime;
     const checkCode = async () => {
       try {
-        const code = await client.getCode({ address: deployment.address });
+        const code = await probe.getCode({ address: deployment.address });
         if (!cancelled) setHealth((h) => ({ ...h, code: code && code !== "0x" ? "present" : "missing" }));
       } catch (err) {
         console.error("[ostrakon] getCode failed", err);
       }
     };
-    const unwatch = client.watchBlockNumber({
-      emitOnBegin: true,
-      poll: true,
-      pollingInterval: 1_000,
-      onBlockNumber: (block) => {
+    const tick = async () => {
+      try {
+        const block = await probe.getBlockNumber({ cacheTime: 0 });
+        if (cancelled) return;
         const prev = lastBlock.current;
         lastBlock.current = block;
         const reset = prev !== null && block < prev;
         const recovering = !rpcUp.current;
         rpcUp.current = true;
-        // (Re)check the deployment on first contact, after an outage, and after a chain reset.
-        if (reset || recovering) void checkCode();
-        setHealth((h) => ({ ...h, rpc: "up", block, resets: reset ? h.resets + 1 : h.resets }));
+        // (Re)check the deployment on first contact, after an outage, after a reset, and every 10s.
+        if (reset || recovering || polls % 10 === 0) void checkCode();
         if (reset || recovering) {
           setLive([]);
           void qc.invalidateQueries({ queryKey: ["ostrakon"] });
         }
-      },
-      onError: (err) => {
-        console.error("[ostrakon] block watch error", err);
+        if (block !== prev || recovering) {
+          setHealth((h) => ({ ...h, rpc: "up", block, resets: reset ? h.resets + 1 : h.resets }));
+        }
+      } catch (err) {
+        if (cancelled) return;
+        if (rpcUp.current !== false) console.error("[ostrakon] chain unreachable", err);
         rpcUp.current = false;
-        setHealth((h) => ({ ...h, rpc: "down" }));
-      },
-    });
+        setHealth((h) => (h.rpc === "down" ? h : { ...h, rpc: "down" }));
+      } finally {
+        polls++;
+        if (!cancelled) timer = setTimeout(() => void tick(), 1_000);
+      }
+    };
+    void tick();
     return () => {
       cancelled = true;
-      unwatch();
+      clearTimeout(timer);
     };
-  }, [client, deployment.address, qc]);
+  }, [runtime, deployment.address, qc]);
 
   // Contract events: subscription over WebSocket when available, polling fallback otherwise.
   useEffect(() => {

@@ -50,7 +50,7 @@ try {
 
   console.log("▸ create");
   await send(C, admin, "createElection", ["Lifecycle Check", ["Ada", "Grace", "Linus"], 0n, 0n]);
-  let [e] = await reads.listElections(pc, C);
+  const [e] = await reads.listElections(pc, C);
   ok("listElections returns the new election", e !== undefined && e.name === "Lifecycle Check");
   ok("phase starts at Registration", e!.phase === "Registration");
   ok("creator is admin", e!.admin === account(admin).address);

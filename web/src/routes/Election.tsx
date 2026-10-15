@@ -6,6 +6,7 @@ import { isBusy, useTx } from "../chain/tx";
 import { useWallet } from "../chain/wallet";
 import { Hex } from "../components/Copy";
 import { CountUp, FillBar, useReducedMotion, useScrollProgress, useTilt } from "../components/motion";
+import { Pending } from "../components/Pending";
 import { PhaseMark } from "../components/PhaseMark";
 import { TxStatus } from "../components/TxStatus";
 import { fmtTime, pct, plural, sameAddr } from "../lib/format";
@@ -21,7 +22,7 @@ export function ElectionPage() {
   const status = useVoterStatus(id, account);
 
   if (id === null) return <NotFound />;
-  if (election.isPending) return <section className="page"><p className="muted">Reading election…</p></section>;
+  if (election.isPending) return <Pending what="election" />;
   if (election.isError) return <NotFound />;
   const e = election.data;
   const isAdmin = sameAddr(e.admin, account);

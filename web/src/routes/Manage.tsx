@@ -5,6 +5,7 @@ import { useAccount, useElection, useVoters } from "../chain/hooks";
 import { PHASES, type ElectionDetail } from "../chain/reads";
 import { isBusy, useTx } from "../chain/tx";
 import { Hex } from "../components/Copy";
+import { Pending } from "../components/Pending";
 import { PhaseMark } from "../components/PhaseMark";
 import { TxStatus } from "../components/TxStatus";
 import { fmtTime, plural, sameAddr } from "../lib/format";
@@ -27,7 +28,7 @@ export function ManagePage() {
       </section>
     );
   }
-  if (election.isPending) return <section className="page"><p className="muted">Reading election…</p></section>;
+  if (election.isPending) return <Pending what="election" />;
   const e = election.data;
 
   if (!sameAddr(e.admin, account)) {

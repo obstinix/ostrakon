@@ -26,7 +26,8 @@
     "typecheck": "npm run chain:build && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "npm run chain:build && vite build --config web/vite.config.ts",
     "preview": "vite preview --config web/vite.config.ts",
-    "keys": "tsx scripts/keys.ts"
+    "keys": "tsx scripts/keys.ts",
+    "chain:deploy": "tsx scripts/deploy-local.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

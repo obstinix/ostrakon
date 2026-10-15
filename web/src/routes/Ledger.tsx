@@ -55,7 +55,15 @@ export function LedgerPage() {
         </dl>
       </header>
 
-      {elections.isPending && health.code === "present" && <p className="muted">Reading the ledger…</p>}
+      {elections.isPending && (
+        <p className="muted" role="status">
+          {health.rpc === "down"
+            ? "Can't read the ledger while the chain is unreachable."
+            : health.code === "missing"
+              ? "Can't read the ledger: there is no contract at the saved address."
+              : "Reading the ledger…"}
+        </p>
+      )}
       {elections.isError && <p className="inline-error">Couldn't read the elections. Retrying when the chain responds.</p>}
       {elections.isSuccess && list.length === 0 && (
         <div className="empty">
