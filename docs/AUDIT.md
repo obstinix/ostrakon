@@ -349,7 +349,7 @@ Evidence is in [VERIFICATION.md](VERIFICATION.md) unless noted.
 | C-05 unbounded batch | Resolved | `MAX_BATCH = 200`, full batch costs 9.47M gas; UI chunks longer lists |
 | C-06 single owner | Resolved | Per-election admin plus `transferAdmin`; `AccessControlTest` |
 | C-07 owner-only list that's public anyway | Resolved | Public paginated `getVoters`; README says the list is public |
-| C-08 no ballot secrecy | **Not addressed by design** | Documented in README, How it works, SECURITY.md; commit–reveal is future scope |
+| C-08 no ballot secrecy | **Partly addressed** | Open ballots stay public (documented). An optional secret-ballot (commit–reveal) mode hides choices and running totals until reveal; choices are public after reveal. `SecretBallotTest` (22), `invariant_secretBallot`, lifecycle and E2E secret-ballot runs |
 | C-09 N+1 reads | Resolved | `getTallies`, `getElections`, `getVoterStatuses` |
 | C-10 missing events | Resolved | Six events; event args checked with `vm.expectEmit` |
 | C-11 gas waste | Resolved | No zero writes or double checks; `.gas-snapshot` |

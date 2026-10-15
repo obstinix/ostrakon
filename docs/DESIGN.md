@@ -3,7 +3,7 @@
 ## Idea
 An *ostrakon* is a pottery shard. Athenians scratched a name on one to cast a vote.
 - The palette is fired clay and ink on bone, like a shard and the hand that marks it.
-- The phase glyph is three scratched notches, one filled per phase reached.
+- The phase glyph is a row of scratched notches, one per phase the election goes through (three for an open ballot, four for a secret ballot), filled up to the current phase.
 - The logo is a shard with two cuts.
 
 The product's job is to make a public record easy to check, so the visual language borrows from ledgers and registers. It uses hairline rules, numbered rows, monospace figures with tabular numerals, and strong horizontal structure. It avoids soft cards floating in space. The look should feel trustworthy and precise because it looks like a record, not like marketing.
@@ -91,7 +91,7 @@ Everything animates **only `transform` and `opacity`**. The final value is alway
 
 | Effect | Purpose | Mechanism |
 |---|---|---|
-| **Scroll-linked phase rail** (Election page) | The rail fills as you scroll through the record, but **can't run past the election's real phase**: Registration-phase elections barely start it, Voting stops halfway, Ended goes to the end. The scroll position shows where you are in the record; the filled part shows how far the election has actually got. | Passive scroll listener; one `getBoundingClientRect` per frame (rAF-throttled); writes `scaleY` |
+| **Scroll-linked phase rail** (Election page) | The rail fills as you scroll through the record, but **can't run past the election's real phase**: Registration-phase elections barely start it, each later phase fills one more segment (halves for open ballots, thirds for secret ballots), and Ended goes to the end. The scroll position shows where you are in the record; the filled part shows how far the election has actually got. | Passive scroll listener; one `getBoundingClientRect` per frame (rAF-throttled); writes `scaleY` |
 | **Chain line drawn while scrolling** | The connecting line between real `#block` events grows with your reading position. | Same hook, `scaleY` |
 | **Count-ups** (figures, tallies) | Numbers count up once when they enter the viewport. Screen readers always get the real value through an `sr-only` twin; the animated digits are `aria-hidden`. | IntersectionObserver + rAF |
 | **Bars fill** | Vote share bars fill when seen. | `scaleX` with a CSS transition |

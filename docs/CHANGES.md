@@ -6,7 +6,8 @@ This maps every change Ostrakon makes against the reference project to the secti
 - "The contract lets an election administrator, who is the owner of the contract, create elections…" → **Anyone can create an election and becomes *that election's* admin.** There is no global owner (C-06).
 - "the contract has no election phases or closing time" → **Phases are Registration → Voting → Ended, forward-only, with optional binding timestamps.** `finalize` records a winner or a tie on chain (C-01, C-02).
 - "A web frontend built with React, React Router and the web3.js library connects … through the MetaMask wallet" → **The web app uses React 19 + TypeScript + Vite, viem, and wagmi.** It reads the chain **without a wallet**; a wallet is only needed to send transactions (F-01).
-- Keywords: replace Hardhat → **Foundry (forge, anvil)**, web3.js → **viem/wagmi**. Add *Slither, fuzz testing, invariant testing*.
+- "It outlines extensions such as election phases, commit–reveal voting and zero-knowledge proofs" → **phases and commit–reveal are implemented.** Each election is an open ballot or a **secret ballot**, in which voters seal a hash of their choice and reveal it in an extra Reveal phase. ZK proofs remain future work.
+- Keywords: replace Hardhat → **Foundry (forge, anvil)**, web3.js → **viem/wagmi**. Add *commit–reveal, Slither, fuzz testing, invariant testing*.
 
 ## 1. Introduction
 - The three parts stay, with these changes:
@@ -14,8 +15,8 @@ This maps every change Ostrakon makes against the reference project to the secti
   - Web frontend: four pages → six screens (Ledger, Election, Manage, New election, Audit, How it works) plus a persistent network bar
   - Wallet integration: any EIP-1193 or EIP-6963 browser wallet, not only MetaMask
 - "The Voting Booth … refreshes them every six seconds" → **Updates are event-driven.** The contract's events are watched over WebSocket, with log polling as fallback. All tallies come from one `getTallies` call instead of one call per candidate (F-06).
-- The sample election table (Ananya / Rahul / Sneha) is now **seeded automatically** as "Student Council 2026" by `npm run dev`, together with four other elections in other phases.
-- The paragraph on what the design does and doesn't provide still holds, unchanged: no ballot secrecy, and eligibility is the admin's word. Ostrakon states it in the UI (How it works, the vote confirmation, the audit page) and in the README.
+- The sample election table (Ananya / Rahul / Sneha) is now **seeded automatically** as "Student Council 2026" by `npm run dev`, together with five other elections in other phases, including a secret ballot.
+- The paragraph on what the design does and doesn't provide needs one change. For open ballots it still holds: no ballot secrecy. Secret ballots hide choices until each voter reveals; after that they are public too. Eligibility is still the admin's word. Ostrakon states all of this in the UI (How it works, the vote confirmation, the audit page) and in the README.
 
 ## 2. Objectives
 Add:
@@ -55,6 +56,7 @@ Still accurate. You could add: "…and the election's phases and closing time mu
 6. "…shows the Admin Dashboard only to the owner" → each election's **Manage** screen is shown only to that election's admin.
 7. Add: anyone can **finalize** an ended election; the result (winner or tie) is stored and emitted.
 8. Add: anyone can verify their own vote from the `Voted` event (Audit → Verify my vote).
+9. Add: the creator chooses an **open or secret ballot**. In a secret ballot a registered voter seals one commitment during Voting and reveals it during Reveal; only revealed votes are counted.
 
 ## 6. Implementation
 **§6.1 Architecture.** Replace Figure 1 with the README diagram. Differences from the original:
@@ -66,13 +68,14 @@ Still accurate. You could add: "…and the election's phases and closing time mu
 
 | Role | Functions | Enforced by |
 |---|---|---|
-| Anyone | `createElection`, `finalize`, `syncPhase`, all views | none (after `finalize`: phase must be Ended) |
+| Anyone | `createElection`, `createSecretElection`, `finalize`, `syncPhase`, all views | none (after `finalize`: phase must be Ended) |
 | Election admin | `registerVoter`, `registerVoters`, `advancePhase`, `transferAdmin` | `onlyAdmin(electionId)` → `NotAdmin` |
+| Registered voter (secret ballot) | `commitVote(electionId, commitment)` in Voting, `revealVote(electionId, candidateIndex, salt)` in Reveal | phase, `registered`, one commitment, commitment must match on reveal |
 | Registered voter | `vote(electionId, candidateIndex)` | phase == Voting, `registered`, `!voted` |
 
 The struct now also holds `admin`, `votingStart`, `votingEnd`, `storedPhase`, `finalized`, `tie`, `winner`, `createdBlock`, `totalVotes`, and `tallies[]` (an array replacing the `votesPerCandidate` mapping, so all tallies are one read). `exists` is gone: an id is valid when `1 ≤ id ≤ electionCount`.
 
-There are six events (three before): `ElectionCreated` (now includes admin, candidates, and the window), `VoterRegistered`, `PhaseChanged` (new), `Voted`, `Finalized` (new), and `AdminTransferred` (new).
+There are seven events (three before): `ElectionCreated` (now includes admin, candidates, the window, and the ballot mode), `VoterRegistered`, `PhaseChanged` (new), `Voted`, `VoteCommitted` (new, secret ballot), `Finalized` (new), and `AdminTransferred` (new).
 
 **§6.3 Contract listing.** Replace with `contracts/src/Ostrakon.sol`. Main differences:
 - custom errors
@@ -114,16 +117,19 @@ There are six events (three before): `ElectionCreated` (now includes admin, cand
 | 11 | `test_R11_nonexistentElectionReverts` | `ElectionNotFound` |
 | 12 | `test_R12_registrationIsPerElection` | `NotRegistered` |
 
-Add a paragraph: 67 Foundry tests in total, including fuzz tests and 4 invariants (tallies sum to the total, no double votes, phases never go backwards, finalize only after Ended). Coverage is 100% of lines, statements, branches, and functions. There are also 15 browser tests and a 24-assertion scripted lifecycle run. See VERIFICATION.md.
+Add a paragraph: 89 Foundry tests in total, including fuzz tests and 5 invariants (tallies sum to the total, no double votes, secret-ballot commit/reveal rules, phases never go backwards, finalize only after Ended). Coverage is 100% of lines, statements, branches, and functions. There are also 16 browser tests and a 38-assertion scripted lifecycle run covering both ballot modes. See VERIFICATION.md.
 
 ## 7. Snapshots
-Replace Figures 3–6 with `docs/screenshots/`: `ledger.png`, `election.png`, `lifecycle.png`, `admin.png`, `audit.png`, `result.png`, `mobile-ledger.png`. Figure 2 (node running) can be replaced with the `npm run dev` console output, which lists the deployed address and the demo accounts and their roles.
+Replace Figures 3–6 with `docs/screenshots/`: `ledger.png`, `election.png`, `lifecycle.png`, `admin.png`, `audit.png`, `result.png`, `secret-ballot.png`, `mobile-ledger.png`. Figure 2 (node running) can be replaced with the `npm run dev` console output, which lists the deployed address and the demo accounts and their roles.
 
 ## 8. Conclusion and future scope
-Now implemented: "Election phases (Registration, Voting, Ended) and time windows enforced by block timestamps, with an on-chain winner function" and "Complete automated contract tests".
+Now implemented:
+- "Election phases (Registration, Voting, Ended) and time windows enforced by block timestamps, with an on-chain winner function"
+- "Commit–reveal voting", as an optional secret-ballot mode with its own Reveal phase. Its trade-offs are documented: choices become public at reveal, unrevealed votes don't count, and late revealers can selectively abort.
+- "Complete automated contract tests"
 
 Still future work, carried over:
-- commit–reveal or ZK ballot secrecy
+- zero-knowledge ballot secrecy (secrecy that survives the count)
 - identity verification
 - public testnet or L2 deployment
 - a professional audit
