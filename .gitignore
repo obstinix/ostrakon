@@ -1,0 +1,29 @@
+# reference material (never committed)
+reference/
+
+# deps / builds
+node_modules/
+dist/
+coverage/
+lcov.info
+.vite/
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# generated at dev time
+.dev/
+playwright-report/
+test-results/
+
+# env / os / editors
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
