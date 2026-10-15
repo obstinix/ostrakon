@@ -39,15 +39,26 @@ async function connect(page: Page) {
 }
 
 /** Stub EIP-1193 provider: exercises the real `injected` connector path. */
-async function stubWallet(page: Page, opts: { locked?: boolean; chainId?: string; account: string; rpc: string }) {
+async function stubWallet(
+  page: Page,
+  opts: { locked?: boolean; chainId?: string; account: string; rpc: string; unknownChain?: boolean },
+) {
   await page.addInitScript((o) => {
     window.__OSTRAKON_E2E__ = { mock: false };
     const listeners: Record<string, ((...a: unknown[]) => void)[]> = {};
     let chainId = o.chainId ?? "0x7a69";
     let connected = false;
+    let accounts = [o.account];
+    // MetaMask answers 4902 when asked to switch to a chain it has never been told about.
+    let appChainKnown = !o.unknownChain;
     const calls: string[] = [];
     (window as unknown as { __stubCalls: string[] }).__stubCalls = calls;
     const emit = (e: string, v: unknown) => (listeners[e] ?? []).forEach((f) => f(v));
+    // Lets a test act like the user locking the wallet / disconnecting the site.
+    (window as unknown as { __stubSetAccounts: (a: string[]) => void }).__stubSetAccounts = (a: string[]) => {
+      accounts = a;
+      emit("accountsChanged", a);
+    };
     // Lets a test act like the user switching networks inside the wallet.
     (window as unknown as { __stubSetChain: (c: string) => void }).__stubSetChain = (c: string) => {
       chainId = c;
@@ -68,20 +79,30 @@ async function stubWallet(page: Page, opts: { locked?: boolean; chainId?: string
           case "eth_chainId":
             return chainId;
           case "eth_accounts":
-            return connected && !o.locked ? [o.account] : [];
+            return connected && !o.locked ? accounts : [];
           case "eth_requestAccounts":
             if (o.locked) throw Object.assign(new Error("User rejected the request."), { code: 4001 });
             connected = true;
-            return [o.account];
+            accounts = [o.account];
+            return accounts;
           case "wallet_requestPermissions":
             return [{ parentCapability: "eth_accounts" }];
           case "wallet_getPermissions":
             return connected ? [{ parentCapability: "eth_accounts" }] : [];
-          case "wallet_switchEthereumChain":
-            chainId = (params?.[0] as { chainId: string }).chainId;
+          case "wallet_switchEthereumChain": {
+            const target = (params?.[0] as { chainId: string }).chainId;
+            if (target === "0x7a69" && !appChainKnown) {
+              throw Object.assign(new Error("Unrecognized chain ID"), { code: 4902 });
+            }
+            chainId = target;
             emit("chainChanged", chainId);
             return null;
+          }
           case "wallet_addEthereumChain":
+            // Like MetaMask: adding a chain also switches to it once the user approves.
+            appChainKnown = true;
+            chainId = (params?.[0] as { chainId: string }).chainId;
+            emit("chainChanged", chainId);
             return null;
           default: {
             const res = await fetch(o.rpc, {
@@ -213,6 +234,14 @@ test("admin: validate a pasted list, register, run the election to a result", as
   await page.getByRole("button", { name: "Register 2 voters" }).click();
   await expect(page.getByTestId("tx-status").nth(1)).toContainText(/Confirmed/, { timeout: 20_000 });
 
+  // Publish an allowlist too: built in the browser, root on chain, list file offered for download.
+  const allowlist = page.getByTestId("allowlist-admin");
+  await allowlist.getByLabel(/Eligible addresses/).fill([ACC[4], ACC[5], ACC[6]].join("\n"));
+  await allowlist.getByRole("button", { name: "Build list" }).click();
+  await allowlist.getByRole("button", { name: "Publish root for 3 addresses" }).click();
+  await expect(allowlist.getByTestId("tx-status")).toContainText(/Confirmed/, { timeout: 20_000 });
+  await expect(allowlist).toContainText("Current root");
+
   await page.getByRole("button", { name: "Open voting" }).click();
   await expect(page.locator(".phase-steps .now")).toHaveText("Voting", { timeout: 20_000 });
   await page.getByRole("button", { name: "Close voting" }).click();
@@ -269,16 +298,30 @@ test("secret ballot: seal, keep the receipt, reveal in this browser or with a pa
   // The on-chain record shows a sealed vote with no choice.
   await expect(page.locator(".block-VoteCommitted").last()).toContainText("choice hidden");
 
-  // Voter #5 seals on "another device" (separate browser context), voting for Neha Bhosale (index 2).
+  // The receipt was derived from a wallet signature: wipe it and rebuild it from the wallet alone.
+  await page.evaluate(() => {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("ostrakon:receipt:")) localStorage.removeItem(k);
+  });
+  await page.reload();
+  await connect(page);
+  await expect(page.getByTestId("eligibility")).toContainText("this browser has no receipt");
+  await page.getByRole("button", { name: "Recover with my wallet" }).click();
+  await expect(page.getByTestId("eligibility")).toContainText("Receipt recovered from your wallet.");
+  await expect(page.getByTestId("eligibility")).toContainText("your wallet can rebuild it");
+
+  // Voter #5 seals on "another device" (separate browser context), voting for Neha Bhosale (index 2),
+  // and declines the recovery signature, so the app falls back to a random secret.
   const other = await browser.newContext();
   const p5 = await other.newPage();
-  await asMock(p5, 5);
+  await asMock(p5, 5, { signError: true });
   await p5.goto("/e/6");
   await connect(p5);
   await p5.getByTestId("candidate-2").locator(".card-face").click();
   await p5.getByRole("button", { name: "Seal vote for Neha Bhosale" }).click();
   await p5.getByRole("button", { name: "Confirm sealed vote" }).click();
   await expect(p5.getByTestId("eligibility")).toContainText("Your vote is sealed", { timeout: 20_000 });
+  await expect(p5.getByText("No signature, so this vote uses a random secret")).toBeVisible();
+  await expect(p5.getByTestId("eligibility")).toContainText("your wallet can't rebuild this one");
   const receipt5 = await p5.evaluate(
     () => Object.entries(localStorage).find(([k]) => k.startsWith("ostrakon:receipt:"))?.[1] ?? "",
   );
@@ -314,6 +357,8 @@ test("secret ballot: seal, keep the receipt, reveal in this browser or with a pa
   await p5b.goto("/e/6");
   await connect(p5b);
   await expect(p5b.getByTestId("eligibility")).toContainText("No matching receipt in this browser");
+  await p5b.getByRole("button", { name: "Recover with my wallet" }).click();
+  await expect(p5b.getByTestId("eligibility")).toContainText("sealed with a random secret");
   const paste = p5b.getByTestId("eligibility").locator("textarea");
   await paste.fill(receipt4);
   await p5b.getByRole("button", { name: "Reveal with this receipt" }).click();
@@ -421,4 +466,148 @@ test("missing deployment.json explains how to get one", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "No contract to read yet" })).toBeVisible();
   await expect(page.locator(".cmd")).toHaveText("npm run dev");
+});
+
+test("allowlist: a listed voter loads the list from the admin's link and votes in one transaction", async ({ page }) => {
+  await asMock(page, 6); // on the 1,003-address list of #7, not registered anywhere there yet
+  await page.goto("/e/7");
+  await connect(page);
+  const elig = page.getByTestId("eligibility");
+  await expect(elig).toContainText("Check the allowlist");
+  await elig.getByRole("button", { name: "Load the list from the admin's link" }).click();
+  await expect(elig).toContainText("You can vote (allowlist)", { timeout: 15_000 });
+  await page.getByTestId("candidate-1").locator(".card-face").click();
+  await page.getByRole("button", { name: "Vote for Asha Kulkarni" }).click();
+  await page.getByRole("button", { name: "Confirm vote" }).click();
+  await expect(page.getByTestId("tx-status").first()).toContainText(/Confirmed in block \d+/, { timeout: 20_000 });
+  await expect(elig).toContainText("You voted");
+  await expect(page.getByTestId("count-line")).toContainText("1 vote of 1 registered voter");
+  await assertNoRawErrors(page);
+});
+
+test("allowlist: outsiders are told they aren't listed; a tampered list is refused", async ({ page }) => {
+  await asMock(page, 7);
+  await page.goto("/e/7");
+  await connect(page);
+  const elig = page.getByTestId("eligibility");
+  const real = await (await page.request.get("/allowlists/7.json")).text();
+  const tampered = JSON.parse(real);
+  tampered.values[0].value = [ACC[7]];
+  await elig.getByLabel("Or paste its contents").fill(JSON.stringify(tampered));
+  await elig.getByRole("button", { name: "Check this list" }).click();
+  await expect(elig).toContainText("isn't a valid allowlist file");
+  await elig.getByLabel("Or paste its contents").fill(real);
+  await elig.getByRole("button", { name: "Check this list" }).click();
+  await expect(elig).toContainText("Not on the allowlist");
+  await page.getByTestId("candidate-0").locator(".card-face").click();
+  await expect(page.getByRole("button", { name: /^Vote for/ })).toHaveCount(0);
+  await assertNoRawErrors(page);
+});
+
+test("two-step admin hand-over: nominate, nominee accepts, roles switch", async ({ page, browser }) => {
+  await asMock(page, 0); // admin of #5
+  await page.goto("/e/5/manage");
+  await connect(page);
+  const panel = page.getByTestId("transfer-admin");
+  await panel.getByLabel("Nominate a new admin").fill(ACC[1]!);
+  await panel.getByRole("button", { name: "Nominate" }).click();
+  await expect(panel).toContainText("Waiting for", { timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: "Admin only" })).toHaveCount(0); // still admin
+
+  const ctx = await browser.newContext();
+  const nominee = await ctx.newPage();
+  await asMock(nominee, 1);
+  await nominee.goto("/e/5");
+  await connect(nominee);
+  await nominee.getByTestId("nomination").getByRole("button", { name: "Accept admin role" }).click();
+  await expect(nominee.getByRole("link", { name: "Manage election" })).toBeVisible({ timeout: 20_000 });
+  await assertNoRawErrors(nominee);
+  await ctx.close();
+
+  await page.reload();
+  await connect(page);
+  await expect(page.getByRole("heading", { name: "Admin only" })).toBeVisible();
+});
+
+test("MetaMask: a wallet that doesn't know the chain gets it added (4902), then switches", async ({ page }) => {
+  await stubWallet(page, { chainId: "0x1", account: ACC[2]!, rpc: RPC, unknownChain: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Connect wallet" }).click();
+  await expect(page.getByTestId("role")).toContainText("Voter", { timeout: 10_000 });
+  const calls = await page.evaluate(() => (window as unknown as { __stubCalls: string[] }).__stubCalls);
+  const firstSwitch = calls.indexOf("wallet_switchEthereumChain");
+  expect(firstSwitch).toBeGreaterThanOrEqual(0);
+  expect(calls.indexOf("wallet_addEthereumChain")).toBeGreaterThan(firstSwitch);
+  await assertNoRawErrors(page);
+});
+
+test("MetaMask: locking the wallet (accounts emptied) drops back to read-only", async ({ page }) => {
+  await stubWallet(page, { account: ACC[2]!, rpc: RPC });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Connect wallet" }).click();
+  await expect(page.getByTestId("role")).toContainText("Voter");
+  await page.evaluate(() => (window as unknown as { __stubSetAccounts: (a: string[]) => void }).__stubSetAccounts([]));
+  await expect(page.getByTestId("role")).toHaveText("Read-only");
+  await expect(page.getByRole("button", { name: "Connect wallet" })).toBeVisible();
+});
+
+test("EIP-6963: several wallets are offered by name; the chosen one connects", async ({ page }) => {
+  await page.addInitScript((rpc) => {
+    window.__OSTRAKON_E2E__ = { mock: false };
+    const mk = (account: string) => {
+      let approved = false; // like a real wallet: no accounts until the user approves this site
+      return {
+      request: async ({ method, params }: { method: string; params?: unknown[] }) => {
+        if (method === "eth_chainId") return "0x7a69";
+        if (method === "eth_requestAccounts") {
+          approved = true;
+          return [account];
+        }
+        if (method === "eth_accounts") return approved ? [account] : [];
+        if (method === "wallet_requestPermissions" || method === "wallet_getPermissions")
+          return [{ parentCapability: "eth_accounts" }];
+        const res = await fetch(rpc, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params ?? [] }),
+        });
+        return (await res.json()).result;
+      },
+      on: () => {},
+      removeListener: () => {},
+      };
+    };
+    const wallets = [
+      {
+        uuid: "11111111-1111-4111-8111-111111111111",
+        name: "Shard Wallet",
+        rdns: "test.shard",
+        account: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      },
+      {
+        uuid: "22222222-2222-4222-8222-222222222222",
+        name: "Kiln Wallet",
+        rdns: "test.kiln",
+        account: "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
+      },
+    ];
+    const icon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'/%3E";
+    const announce = () =>
+      wallets.forEach((w) =>
+        window.dispatchEvent(
+          new CustomEvent("eip6963:announceProvider", {
+            detail: Object.freeze({ info: { uuid: w.uuid, name: w.name, rdns: w.rdns, icon }, provider: mk(w.account) }),
+          }),
+        ),
+      );
+    window.addEventListener("eip6963:requestProvider", announce);
+    announce();
+  }, RPC);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Connect wallet" }).click();
+  const menu = page.getByRole("list", { name: "Choose a wallet" });
+  await expect(menu.getByRole("button", { name: "Shard Wallet" })).toBeVisible();
+  await menu.getByRole("button", { name: "Kiln Wallet" }).click();
+  await expect(page.getByLabel("Network status")).toContainText("0x14dC");
+  await assertNoRawErrors(page);
 });
