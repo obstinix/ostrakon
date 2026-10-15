@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseDeployment, type Deployment } from "../web/src/chain/deployment.ts";
 import { account, CHAIN_ID, deploy, PORT, publicClient, rpcAlive, setIntervalMining, startAnvil } from "./lib/chain.ts";
 import { foundryBin } from "./lib/foundry.ts";
-import { ROLES, seed } from "./lib/seed.ts";
+import { DEMO_ALLOWLIST_FILE, ROLES, seed, writeDemoAllowlist } from "./lib/seed.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const deploymentFile = join(root, "web/public/deployment.json");
@@ -54,7 +54,11 @@ async function main() {
     }
     step(`Reusing the chain already running on :${PORT}`);
     deployment = await existingDeployment();
-    if (deployment) console.log(`  Found Ostrakon at ${deployment.address}; keeping its state.`);
+    if (deployment) {
+      console.log(`  Found Ostrakon at ${deployment.address}; keeping its state.`);
+      // The demo allowlist file is deterministic; restore it if web/public was cleaned.
+      if (!existsSync(DEMO_ALLOWLIST_FILE)) writeDemoAllowlist();
+    }
   } else {
     step(`Starting anvil on :${PORT} (chain ${CHAIN_ID})`);
     children.push(await startAnvil());

@@ -105,13 +105,20 @@ export async function seed(contract: Address): Promise<void> {
   // in Voting. Nobody is registered yet: listed voters register in the same transaction as their vote.
   // The tree is served by the app at /allowlists/7.json, the link published on chain.
   await send(contract, 0, "createElection", ["Alumni Board (allowlist)", ["Rohan Iyer", "Asha Kulkarni"], 0n, 0n]);
+  const list = writeDemoAllowlist();
+  await send(contract, 0, "setAllowlist", [7n, list.root, "/allowlists/7.json"]);
+  await send(contract, 0, "advancePhase", [7n]);
+}
+
+export const DEMO_ALLOWLIST_FILE = join(dirname(fileURLToPath(import.meta.url)), "../../web/public/allowlists/7.json");
+
+/** Build the demo allowlist for election #7 (deterministic) and write the file the app serves. */
+export function writeDemoAllowlist(): { root: `0x${string}`; json: string } {
   const generated = Array.from({ length: 1000 }, (_, i) =>
     getAddress(`0x${keccak256(toHex(`ostrakon-demo-alumnus-${i}`)).slice(26)}`),
   );
   const list = buildAllowlist([...many(4, 5, 6), ...generated]);
-  const file = join(dirname(fileURLToPath(import.meta.url)), "../../web/public/allowlists/7.json");
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, list.json);
-  await send(contract, 0, "setAllowlist", [7n, list.root, "/allowlists/7.json"]);
-  await send(contract, 0, "advancePhase", [7n]);
+  mkdirSync(dirname(DEMO_ALLOWLIST_FILE), { recursive: true });
+  writeFileSync(DEMO_ALLOWLIST_FILE, list.json);
+  return list;
 }

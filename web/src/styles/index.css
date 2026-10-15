@@ -294,7 +294,7 @@ main:focus {
   margin: 0;
 }
 .netbar [data-testid="block-number"] {
-  min-width: 7ch; /* "#123456": the number grows without moving its neighbours */
+  min-width: 7ch; /* room for a six-digit block number, so it grows without moving its neighbours */
 }
 .netbar .muted {
   color: var(--night-2);

@@ -218,6 +218,9 @@ Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run lifecycle` | Scripted full lifecycle on an isolated chain on :8547 |
 | `npm run lint` · `typecheck` · `build` · `coverage` · `gas` | |
 
+## Hosting the static build
+`npm run build` produces a static site in `dist/`. It copies whatever is in `web/public/`, including the **local** `deployment.json` and demo allowlist file from your last `npm run dev`. To host it against another chain, replace `dist/deployment.json` with that chain's values: `chainId`, `chainName`, `rpcUrl`, optional `wsUrl`, `address`, `deployBlock`, `deployTx`, `deployedAt` (the shape is checked by `parseDeployment` in `web/src/chain/deployment.ts`). Also publish any allowlist files at the links you set on chain. No rebuild is needed, because the app reads `deployment.json` at runtime. Deploying to a public network isn't scripted here.
+
 ## Repository map
 ```
 contracts/src/Ostrakon.sol        the contract
