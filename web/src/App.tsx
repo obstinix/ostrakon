@@ -1,15 +1,17 @@
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { RuntimeProvider, type Runtime } from "./chain/runtime";
 import { WalletProvider } from "./chain/wallet";
 import { HealthNotice } from "./components/HealthNotice";
 import { NetworkBar } from "./components/NetworkBar";
-import { AuditPage } from "./routes/Audit";
-import { CreatePage } from "./routes/Create";
-import { ElectionPage } from "./routes/Election";
-import { HowPage } from "./routes/How";
 import { LedgerPage } from "./routes/Ledger";
-import { ManagePage } from "./routes/Manage";
+
+// The ledger is the landing page; every other screen loads on first visit.
+const AuditPage = lazy(() => import("./routes/Audit").then((m) => ({ default: m.AuditPage })));
+const CreatePage = lazy(() => import("./routes/Create").then((m) => ({ default: m.CreatePage })));
+const ElectionPage = lazy(() => import("./routes/Election").then((m) => ({ default: m.ElectionPage })));
+const HowPage = lazy(() => import("./routes/How").then((m) => ({ default: m.HowPage })));
+const ManagePage = lazy(() => import("./routes/Manage").then((m) => ({ default: m.ManagePage })));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -45,6 +47,7 @@ function Shell() {
       </header>
       <HealthNotice />
       <main id="main" tabIndex={-1}>
+        <Suspense fallback={<section className="page"><p className="muted">Loading…</p></section>}>
         <Routes>
           <Route path="/" element={<LedgerPage />} />
           <Route path="/e/:id" element={<ElectionPage />} />
@@ -64,6 +67,7 @@ function Shell() {
             }
           />
         </Routes>
+        </Suspense>
       </main>
       <footer className="colophon">
         <p>

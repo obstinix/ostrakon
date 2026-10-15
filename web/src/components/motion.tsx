@@ -1,36 +1,86 @@
-// Motion primitives. Rules: animate transform/opacity only, never hide content that a reader
-// needs (final values are always in the DOM), and render statically under reduced motion.
-import { animate, useInView, useReducedMotion } from "motion/react";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+// Motion primitives, dependency-free. Rules: animate transform/opacity only, never hide content a
+// reader needs (final values are always in the DOM), and render statically under reduced motion.
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
-const subscribeVisibility = (cb: () => void) => {
+// ------------------------------------------------------------------ environment
+
+const reduceQuery = "(prefers-reduced-motion: reduce)";
+function subscribeReduce(cb: () => void) {
+  const mq = window.matchMedia(reduceQuery);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribeReduce, () => window.matchMedia(reduceQuery).matches, () => false);
+}
+
+function subscribeVisibility(cb: () => void) {
   document.addEventListener("visibilitychange", cb);
   return () => document.removeEventListener("visibilitychange", cb);
-};
-const getVisible = () => document.visibilityState === "visible";
+}
+/** Background tabs pause requestAnimationFrame; callers show final values instead of a stalled frame. */
+function useDocumentVisible(): boolean {
+  return useSyncExternalStore(subscribeVisibility, () => document.visibilityState === "visible", () => true);
+}
 
-/** Integer that counts up from its previous value the first time it scrolls into view. */
+/** True once the element has entered the viewport (with an optional bottom inset). */
+export function useInViewOnce(ref: RefObject<Element | null>, bottomInset = "-10%"): boolean {
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: `0px 0px ${bottomInset} 0px` },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, seen, bottomInset]);
+  return seen;
+}
+
+const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+
+// ------------------------------------------------------------------ components
+
+/** Integer that counts up from its previous value once it scrolls into view. */
 export function CountUp({ value, className }: { value: number; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "0px 0px -10% 0px" });
+  const inView = useInViewOnce(ref);
   const reduce = useReducedMotion();
-  // Background tabs pause requestAnimationFrame: show the real value rather than a stalled frame.
-  const visible = useSyncExternalStore(subscribeVisibility, getVisible, () => true);
+  const visible = useDocumentVisible();
   const shown = useRef(0);
   const [display, setDisplay] = useState(0);
   const instant = reduce || !visible;
 
   useEffect(() => {
     if (instant || !inView) return;
-    const controls = animate(shown.current, value, {
-      duration: 0.8,
-      ease: [0.2, 0.7, 0.2, 1],
-      onUpdate: (v) => {
-        shown.current = v;
-        setDisplay(Math.round(v));
-      },
-    });
-    return () => controls.stop();
+    const from = shown.current;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 800);
+      const v = from + (value - from) * easeOut(t);
+      shown.current = v;
+      setDisplay(Math.round(v));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [value, inView, instant]);
 
   return (
@@ -42,10 +92,10 @@ export function CountUp({ value, className }: { value: number; className?: strin
   );
 }
 
-/** Horizontal bar that fills (scaleX) to `share` when in view. */
+/** Horizontal bar that fills (scaleX, CSS transition) to `share` once in view. */
 export function FillBar({ share, tone = "clay" }: { share: number; tone?: "clay" | "olive" | "ink" }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "0px 0px -10% 0px" });
+  const inView = useInViewOnce(ref);
   const reduce = useReducedMotion();
   const scale = reduce || inView ? share : 0;
   return (
@@ -63,21 +113,63 @@ export function Reveal({ index = 0, children, as = "div", className }: {
   className?: string;
 }) {
   const ref = useRef<HTMLElement>(null);
-  const inView = useInView(ref, { once: true, margin: "0px 0px -5% 0px" });
+  const inView = useInViewOnce(ref, "-5%");
   const reduce = useReducedMotion();
   const Tag = as;
+  const delay = Math.min(index, 12) * 45;
   const style: CSSProperties | undefined = reduce
     ? undefined
     : {
         opacity: inView ? 1 : 0,
         transform: inView ? "none" : "translateY(10px)",
-        transition: `opacity var(--t-slow) var(--ease-out) ${Math.min(index, 12) * 45}ms, transform var(--t-slow) var(--ease-out) ${Math.min(index, 12) * 45}ms`,
+        transition: `opacity var(--t-slow) var(--ease-out) ${delay}ms, transform var(--t-slow) var(--ease-out) ${delay}ms`,
       };
   return (
     <Tag ref={ref as never} className={className} style={style}>
       {children}
     </Tag>
   );
+}
+
+/**
+ * Scroll-linked progress of `target` through the viewport, 0 when its top reaches `start` (fraction
+ * of viewport height) and 1 when its bottom reaches `end`. `apply` runs at most once per frame from
+ * a passive scroll listener and should only write transforms. Native scrolling is never altered.
+ */
+export function useScrollProgress(
+  target: RefObject<HTMLElement | null>,
+  apply: (progress: number) => void,
+  { start = 0.75, end = 0.55, enabled = true } = {},
+) {
+  const applyRef = useRef(apply);
+  useEffect(() => {
+    applyRef.current = apply;
+  });
+  useEffect(() => {
+    const el = target.current;
+    if (!el || !enabled) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const r = el.getBoundingClientRect();
+      const vh = window.innerHeight;
+      const from = r.top - vh * start; // distance until the start line
+      const total = r.height + vh * start - vh * end;
+      const p = total <= 0 ? 1 : Math.min(1, Math.max(0, -from / total));
+      applyRef.current(p);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [target, start, end, enabled]);
 }
 
 /**

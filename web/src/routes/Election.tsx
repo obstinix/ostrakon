@@ -1,12 +1,11 @@
 import { useId, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { useAccount, useAuditLog, useElection, useVoterStatus } from "../chain/hooks";
 import { leaders, PHASES, share, type AuditEntry, type ElectionDetail, type VoterStatus } from "../chain/reads";
 import { isBusy, useTx } from "../chain/tx";
 import { useWallet } from "../chain/wallet";
 import { Hex } from "../components/Copy";
-import { CountUp, FillBar, useTilt } from "../components/motion";
+import { CountUp, FillBar, useReducedMotion, useScrollProgress, useTilt } from "../components/motion";
 import { PhaseMark } from "../components/PhaseMark";
 import { TxStatus } from "../components/TxStatus";
 import { fmtTime, pct, plural, sameAddr } from "../lib/format";
@@ -164,7 +163,7 @@ function CandidateCard(p: {
         <span className="card-no mono">{String(p.index + 1).padStart(2, "0")}</span>
         <span className="card-name">{p.name}</span>
         <span className="card-tally mono">
-          <CountUp value={p.tally} />
+          <CountUp value={p.tally} className="count" />
           <span className="sr-only"> votes</span>
         </span>
         <FillBar share={s} tone={p.winner ? "olive" : p.leading ? "clay" : "ink"} />
@@ -353,11 +352,18 @@ function phaseOfEvent(ev: AuditEntry, current: number): number {
 function Lifecycle({ e }: { e: ElectionDetail }) {
   const log = useAuditLog(e.id);
   const ref = useRef<HTMLElement>(null);
+  const fillRef = useRef<HTMLSpanElement>(null);
+  const drawRef = useRef<HTMLSpanElement>(null);
   const reduce = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.75", "end 0.55"] });
-  const cap = e.phaseIndex / 2; // 0, 0.5, 1
-  const fill = useTransform(scrollYProgress, (v) => Math.min(v, cap === 0 ? 0.04 : cap));
-  const draw = useTransform(scrollYProgress, (v) => Math.max(0.02, v));
+  const cap = e.phaseIndex / 2; // 0, 0.5, 1: the rail can't run ahead of the real phase
+  useScrollProgress(
+    ref,
+    (p) => {
+      if (fillRef.current) fillRef.current.style.transform = `scaleY(${Math.min(p, cap === 0 ? 0.04 : cap)})`;
+      if (drawRef.current) drawRef.current.style.transform = `scaleY(${Math.max(0.02, p)})`;
+    },
+    { enabled: !reduce },
+  );
 
   // Group events into phase bands, in order.
   const groups: { phase: number; events: AuditEntry[] }[] = [
@@ -383,7 +389,7 @@ function Lifecycle({ e }: { e: ElectionDetail }) {
         <div className="life-rail" aria-hidden="true">
           <div className="life-rail-inner">
             <span className="rail-track" />
-            <motion.span className="rail-fill" style={reduce ? { scaleY: cap } : { scaleY: fill }} />
+            <span ref={fillRef} className="rail-fill" style={reduce ? { transform: `scaleY(${cap})` } : undefined} />
             {PHASES.map((name, i) => (
               <span
                 key={name}
@@ -397,7 +403,7 @@ function Lifecycle({ e }: { e: ElectionDetail }) {
           </div>
         </div>
         <ol className="chain" aria-label="Events in block order">
-          <motion.span className="chain-line" aria-hidden="true" style={reduce ? undefined : { scaleY: draw }} />
+          <span ref={drawRef} className="chain-line" aria-hidden="true" />
           {groups.map((g) => (
             <li key={g.phase} className={`band ${g.phase > e.phaseIndex ? "band-future" : ""}`}>
               <h3 className="band-title">

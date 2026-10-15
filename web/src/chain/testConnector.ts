@@ -4,7 +4,7 @@
 // else (eth_sendTransaction, eth_call, ...) is forwarded to the local anvil node, whose default
 // accounts are unlocked, so transactions are real.
 import type { Address } from "viem";
-import { mock } from "wagmi/connectors";
+import { mock } from "wagmi/connectors/mock";
 
 const ANVIL_ACCOUNTS: readonly Address[] = [
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
@@ -19,8 +19,13 @@ const ANVIL_ACCOUNTS: readonly Address[] = [
 
 declare global {
   interface Window {
-    __OSTRAKON_E2E__?: { account?: number; connectError?: boolean };
+    /** Set by Playwright via addInitScript. `mock: false` leaves only the injected connector. */
+    __OSTRAKON_E2E__?: { account?: number; connectError?: boolean; mock?: boolean };
   }
+}
+
+export function testConnectorEnabled(): boolean {
+  return window.__OSTRAKON_E2E__?.mock !== false;
 }
 
 export function testConnector() {
