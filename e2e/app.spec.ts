@@ -1,10 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-declare global {
-  interface Window {
-    __OSTRAKON_E2E__?: { account?: number; connectError?: boolean; mock?: boolean };
-  }
-}
 
 // Seeded world (scripts/lib/seed.ts):
 //  #1 Student Council 2026  Voting      admin #0, voters #2..#6, #2 #3 #4 voted

@@ -12,11 +12,6 @@ async function connect(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("role")).not.toHaveText("Read-only");
 }
 
-declare global {
-  interface Window {
-    __OSTRAKON_E2E__?: { account?: number; mock?: boolean };
-  }
-}
 
 test("capture", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
