@@ -1,0 +1,77 @@
+/* Ostrakon design tokens: the only place colors, type, spacing and motion are defined.
+   One light theme ("fired clay and ink on bone"). Rationale and contrast table: docs/DESIGN.md */
+:root {
+  /* surfaces */
+  --bone: #efe9dd; /* page */
+  --paper: #f8f4eb; /* raised surface */
+  --sand: #e4dbcb; /* sunken / selected fill */
+
+  /* ink */
+  --ink: #1e1b16; /* primary text, 14.2:1 on bone */
+  --ink-2: #4f483d; /* secondary text, 7.5:1 */
+  --ink-3: #6b6253; /* tertiary text, 5.0:1 (not on sand) */
+  --rule: #b9ad97; /* hairlines (decorative) */
+  --rule-strong: #8f836c; /* component borders, 3.1:1 */
+
+  /* signal */
+  --clay: #a3421b; /* accent / action, 5.2:1 on bone */
+  --clay-deep: #7c3112; /* hover, pressed, focus ring, 7.5:1 */
+  --olive: #4a5f1e; /* confirmed / voted / winner, 5.9:1 */
+  --ochre: #7d5a0c; /* pending / scheduled, 5.2:1 */
+  --oxblood: #8e2a22; /* failed / error, 6.9:1 */
+  --on-solid: #f8f4eb; /* text on clay/ink/olive fills */
+
+  /* the ink-coloured network bar */
+  --night-2: #b8ad99; /* secondary text on ink, 7.7:1 */
+  --night-rule: #6f6656; /* dotted underline on ink */
+  --night-edge: #8d8371; /* button border on ink, 4.6:1 */
+  --night-hover: #3a352d; /* hover fill on ink */
+  --night-focus: #e9a07c; /* focus ring on ink, 8.0:1 */
+  --live: #9cb86a; /* chain reachable dot */
+  --down: #e07a68; /* chain unreachable dot */
+
+  /* type */
+  --font-display: "Fraunces Variable", "Iowan Old Style", Georgia, serif;
+  --font-body: "Public Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+  --step-4: clamp(2.25rem, 1.6rem + 2.8vw, 3.5rem);
+  --leading: 1.55;
+
+  /* space (4px base) */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4.5rem;
+  --gutter: clamp(1rem, 4vw, 2.5rem);
+  --measure: 68ch;
+  --page: 72rem;
+
+  /* shape */
+  --radius: 2px;
+  --hair: 1px solid var(--rule);
+  --edge: 1px solid var(--rule-strong);
+  --offset: 3px 3px 0 var(--ink); /* the one "lift": a hard offset, not a shadow */
+
+  /* motion */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 120ms;
+  --t-med: 240ms;
+  --t-slow: 600ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-med: 0ms;
+    --t-slow: 0ms;
+  }
+}

@@ -3,7 +3,7 @@
 // Every write is simulated against the chain first, so predictable reverts never reach the wallet.
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import type { ContractFunctionArgs, ContractFunctionName, Hash } from "viem";
+import type { ContractFunctionArgs, ContractFunctionName, Hash, TransactionReceipt } from "viem";
 import { useConnection } from "wagmi";
 import { writeContract } from "wagmi/actions";
 import { ostrakonAbi } from "../generated/ostrakonAbi";
@@ -34,18 +34,18 @@ export function useTx() {
   const busy = useRef(false);
 
   const run = useCallback(
-    async <N extends WriteName>(call: TxCall<N>): Promise<boolean> => {
-      if (busy.current) return false;
+    async <N extends WriteName>(call: TxCall<N>): Promise<TransactionReceipt | null> => {
+      if (busy.current) return null;
       if (connection.status !== "connected") {
         setState({ status: "failed", error: { code: "no-account", message: "Connect a wallet first." } });
-        return false;
+        return null;
       }
       if (connection.chainId !== runtime.chain.id) {
         setState({
           status: "failed",
           error: { code: "wrong-chain", message: `Switch your wallet to ${runtime.chain.name} first.` },
         });
-        return false;
+        return null;
       }
       busy.current = true;
       let hash: Hash | undefined;
@@ -68,14 +68,14 @@ export function useTx() {
             hash,
             error: { code: "reverted", message: "The transaction was mined but reverted. Nothing was changed." },
           });
-          return false;
+          return null;
         }
         setState({ status: "confirmed", hash, blockNumber: receipt.blockNumber });
         await qc.invalidateQueries({ queryKey: ["ostrakon"] });
-        return true;
+        return receipt;
       } catch (err) {
         setState({ status: "failed", error: decodeError(err), ...(hash ? { hash } : {}) });
-        return false;
+        return null;
       } finally {
         busy.current = false;
       }
