@@ -6,7 +6,7 @@ Every result below came from running the command shown. Outputs are trimmed to t
 
 ## 1. Clean clone: install, lint, typecheck, tests, build
 
-Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at commit **`748ccff`**. Before installing, the clone had no `web/src/generated/` and no `deployment.json`: everything is generated.
+Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at commit **`592d7f4`**. That's the build with the secret-ballot (commit–reveal) mode; the same sequence also passed earlier at `748ccff`, before that mode existed. Before installing, the clone had no `web/src/generated/` and no `deployment.json`: everything is generated.
 
 ```
 npm ci                 exit=0   (209 packages)
@@ -32,14 +32,17 @@ Suite result: ok. 8 passed   (BatchTest)
 Suite result: ok. 12 passed  (ReportScenariosTest: the 12 core voting scenarios)
 Suite result: ok. 4 passed   (VoteFuzzTest)
 Suite result: ok. 6 passed   (FinalizeTest)
+Suite result: ok. 22 passed  (SecretBallotTest: commit–reveal mode)
 [PASS] invariant_finalizeOnlyWhenEnded
 [PASS] invariant_noDoubleVote
 [PASS] invariant_phaseMonotonic
+[PASS] invariant_secretBallot
 [PASS] invariant_talliesSumToTotal
-Ran 9 test suites in 8.31s: 67 tests passed, 0 failed, 0 skipped (67 total tests)
+Ran 10 test suites in 16.45s: 89 tests passed, 0 failed, 0 skipped (89 total tests)
 ```
 - Fuzz tests run 1,024 times each (`foundry.toml`, fixed seed).
-- Invariants run 256 runs × depth 64. Handler call counts: each of `register`, `advance`, `vote`, `warp`, and `finalize` was called about 3,200–3,300 times per campaign.
+- Invariants run 256 runs × depth 64 over three elections: open/manual, open/scheduled, and secret.
+- Handler call counts per campaign: each of `register`, `advance`, `vote`, `commit`, `reveal` (sometimes with a tampered salt), `warp`, and `finalize` was called about 2,270–2,400 times.
 
 **Do the invariants actually bite?** I checked by mutation (`contracts/src/Ostrakon.sol` edited, tests run, file restored):
 
@@ -49,22 +52,33 @@ Ran 9 test suites in 8.31s: 67 tests passed, 0 failed, 0 skipped (67 total tests
 | A vote for candidate 0 also adds one to candidate 1 | `invariant_talliesSumToTotal` ("sum(tallies) == totalVotes: 2 != 1") |
 | `advancePhase` sets Voting → Registration | `invariant_phaseMonotonic` ("phase went backwards") |
 | Ended is reported as Voting for manual elections | 10 unit tests failed. The invariants didn't catch this one: it hides Ended rather than moving the phase backwards, so it's a liveness bug, not a monotonicity violation. |
+| Secret ballot: `revealVote` skips the commitment check (`CommitmentMismatch` commented out) | `invariant_secretBallot` ("reveal with wrong salt accepted") |
+| Secret ballot: the `AlreadyRevealed` check is deleted | `invariant_secretBallot` ("revealed only what was committed: 2 > 1") |
 
-After restoring the file: 66/66, then later 67/67 with the added `getVoterStatuses` test.
+Pass counts after each restore:
+- the first four mutants: 66/66 (67/67 once the `getVoterStatuses` test was added)
+- the two secret-ballot mutants: 89/89
+
+Adding the secret-ballot mode left the original 67 tests passing unchanged. The only test edits were the new enum value for Ended (now `3`, after `Reveal`), the extra `ElectionCreated` fields, and the third `getVoterStatuses` array.
 
 ### Frontend unit tests (`npm run test:web`)
 ```
- Test Files  2 passed (2)
-      Tests  8 passed (8)
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
 ```
 - `errors.test.ts`: every custom error in the ABI has curated copy. Reverts are mapped by name, with arguments. Raw text (`0xdeadbeef stack at foo.ts:12`) never comes back out. Wallet rejection and network failures are classified.
 - `voters.test.ts`: list preview classifies valid, duplicate, already-registered, zero, malformed, and bad-checksum entries. Chunking is checked.
+- `secret.test.ts`:
+  - `commitmentHash` is deterministic and changes when any bound input changes (chain, contract, election, voter, choice, salt).
+  - Receipt parsing rejects malformed receipts.
+  - The create form enforces the reveal-schedule rules.
+  - That `commitmentHash` matches the contract's own encoding is proven separately: the lifecycle reveals below only succeed if it does.
 
 ## 2. Coverage, gas, static analysis
 
 ```
 $ npm run coverage
-| contracts/src/Ostrakon.sol | 100.00% (179/179) | 100.00% (224/224) | 100.00% (47/47) | 100.00% (26/26) |
+| contracts/src/Ostrakon.sol | 100.00% (228/228) | 100.00% (284/284) | 100.00% (67/67) | 100.00% (32/32) |
                                lines               statements          branches          functions
 ```
 
@@ -73,6 +87,7 @@ Gas, from `npm run gas:report` and `forge test -vvvv` (optimizer, 10,000 runs). 
 | Call | Gas |
 |---|---|
 | `vote` (first vote, cold) | 82,676 |
+| `commitVote` / `revealVote` (secret ballot) | 83,085 / 85,571 |
 | `registerVoters` × 200 (the cap) | 9,472,010 (≈ 47,360 per address; 32% of a 30M block) |
 | `registerVoter` (median) | 80,551 |
 | `createElection` (median / 32 candidates) | 244,631 / 1,086,953 |
@@ -83,9 +98,9 @@ The reference contract for comparison: `createElection` cost 153,431 with 2 cand
 
 **Slither 0.11.6** on the final contract, run in the clean clone:
 ```
-Detector: timestamp              createElection   (Ostrakon.sol#162)
-Detector: timestamp              _effectivePhase  (Ostrakon.sol#400, #404)
-Detector: cyclomatic-complexity  createElection (13)
+Detector: timestamp              _create          (Ostrakon.sol#487)
+Detector: timestamp              _effectivePhase  (Ostrakon.sol#520, #524, #528)
+Detector: cyclomatic-complexity  _create (13)
 INFO:Slither:. analyzed (1 contracts with 102 detectors), 3 result(s) found
 ```
 All three are triaged in [SECURITY.md](SECURITY.md). Slither isn't an npm dependency because it's Python. I installed it with `pip install slither-analyzer` in a throwaway venv and ran it with Foundry on `PATH`.
@@ -123,9 +138,27 @@ This starts its own anvil on :8547, deploys, and asserts through **`web/src/chai
   ✓ 1 Finalized
   ✓ findMyVotes finds exactly voter #3's vote via the indexed topic
   ✓ log is in block order
+▸ secret ballot: create, register, open
+  ✓ secret election is in Voting, flagged secret
+  ✓ 4 sealed votes, 0 counted, tallies all zero while voting
+  ✓ reveal during Voting rejected: "That needs the Reveal phase, but the election is in Voting."
+▸ secret ballot: open reveal
+  ✓ phase is Reveal
+  ✓ reveal with a different choice rejected: "That receipt doesn't match the sealed vote on chain. Check that it is the receipt for this account and election."
+  ✓ reveal without a sealed vote rejected: "This account has no sealed vote to reveal in this election."
+  ✓ second reveal rejected: "This vote has already been revealed and counted."
+  ✓ voter #5: committed but not revealed
+▸ secret ballot: close reveal, finalize
+  ✓ tallies [1, 0, 2]: only revealed votes count
+  ✓ committed 4, counted 3
+  ✓ winner Linus (index 2)
+  ✓ 4 VoteCommitted, 3 Voted events
+  ✓ 3 PhaseChanged (Voting, Reveal, Ended)
+  ✓ findMyCommits finds #5's sealed vote
 
-lifecycle: 24 assertions passed
+lifecycle: 38 assertions passed
 ```
+The secret-ballot commitments are computed by the app's own `commitmentHash` (TypeScript). The three successful reveals therefore show that it produces exactly the bytes the contract's `keccak256(abi.encode(...))` expects.
 
 ## 4. Browser run of the real app (`npm run test:e2e`)
 `scripts/e2e.ts` runs these steps:
@@ -147,14 +180,24 @@ ok  6 unregistered account sees why it can't vote
 ok  7 admin: validate a pasted list, register, run the election to a result
 ok  8 non-admin cannot see admin controls
 ok  9 audit: verify-my-vote shows only what the chain proves
-ok 10 anyone can create an election and lands on it
-ok 11 360px: no horizontal scroll, ledger rows stack
-ok 12 reduced motion: final values render immediately, no transitions
-ok 13 stale deployment (no code at the saved address) is explained, not blank
-ok 14 unreachable chain is explained, not blank
-ok 15 missing deployment.json explains how to get one
-15 passed · 2 skipped (the screenshot generator, which only runs with SHOTS=1)
+ok 10 secret ballot: seal, keep the receipt, reveal in this browser or with a pasted receipt
+ok 11 anyone can create an election and lands on it   (open, then a secret ballot)
+ok 12 360px: no horizontal scroll, ledger rows stack
+ok 13 reduced motion: final values render immediately, no transitions
+ok 14 stale deployment (no code at the saved address) is explained, not blank
+ok 15 unreachable chain is explained, not blank
+ok 16 missing deployment.json explains how to get one
+16 passed · 2 skipped (the screenshot generator, which only runs with SHOTS=1)
 ```
+Test 10 runs the whole secret-ballot path across separate browser contexts:
+1. Tallies show as *sealed* while Voting is open.
+2. Voter #4 seals a vote. The receipt is saved and offered for download. The on-chain record shows "choice hidden".
+3. Voter #5 seals on another "device", meaning a separate context.
+4. The admin opens Reveal from a third session.
+5. #4 reveals with one click using the stored receipt.
+6. #5, on a fresh context with no stored receipt, first pastes #4's receipt, which is refused with curated copy. Then #5 pastes the right one, and the vote is counted.
+
+Tallies and the "2 of 4 sealed votes revealed" line are asserted after each step.
 - Every test that can surface errors also checks that the page text contains no raw-error patterns: `execution reverted`, `ContractFunction`, `Error:`, stack frames, long hex blobs, viem's `Details:` or `Version:` lines.
 - Test 5 is keyboard only: focus, then Enter, then Space, then Enter.
 - Test 11 checks `scrollWidth ≤ innerWidth` at 360px on `/`, `/e/1`, `/audit`, `/how`, and `/new`.
@@ -214,6 +257,7 @@ Lighthouse's "llms.txt" audit still fails. It isn't applicable to a local DApp. 
 - The first production build had a 253 kB gzipped main chunk.
 - Replacing the `motion` library with about 200 lines of local hooks brought it to 202 kB.
 - Lazy-loading every route except the ledger left the entry at 72 kB plus shared vendor chunks (66 + 16 + 30 + 12 kB gzipped). Each other screen is 1.4–3.9 kB.
+- **Timing caveat.** The Lighthouse, trace, and scroll measurements in this section were taken on the build *before* the secret-ballot mode. That change added no animation. It grew the two largest chunks by about 0.8 kB gzipped in total (entry 72.05 → 72.18 kB, shared 65.70 → 66.32 kB, from the `592d7f4` clean-clone build). I didn't rerun Lighthouse after it.
 
 **Reduced motion:** E2E test 12 emulates `prefers-reduced-motion: reduce`. The visible tally digits equal the real values immediately, and `transition-duration` computes to `0s`.
 
