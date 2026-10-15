@@ -3,7 +3,7 @@
 // Every write is simulated against the chain first, so predictable reverts never reach the wallet.
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import type { ContractFunctionArgs, ContractFunctionName, Hash, TransactionReceipt } from "viem";
+import type { ContractFunctionArgs, ContractFunctionName, Hash, ReplacementReason, TransactionReceipt } from "viem";
 import { useConnection } from "wagmi";
 import { writeContract } from "wagmi/actions";
 import { ostrakonAbi } from "../generated/ostrakonAbi";
@@ -25,6 +25,18 @@ export interface TxCall<N extends WriteName = WriteName> {
   functionName: N;
   args: WriteArgs<N>;
 }
+
+/**
+ * What a wallet-side replacement means for the user's action. viem resolves with the replacement's
+ * receipt in every case, but only a "repriced" replacement (same call, higher fee) did what the
+ * user asked; "cancelled" and "replaced" (a different call) mean the action never happened.
+ */
+export function replacementOutcome(reason: ReplacementReason): "same-action" | "did-not-happen" {
+  return reason === "repriced" ? "same-action" : "did-not-happen";
+}
+
+/** How long to wait for inclusion before telling the user to check back. */
+export const RECEIPT_TIMEOUT_MS = 180_000;
 
 export function useTx() {
   const { runtime } = useRuntime();
@@ -61,7 +73,31 @@ export function useTx() {
         setState({ status: "awaiting-signature" });
         hash = await writeContract(runtime.wagmi, { ...(request as object), chainId: runtime.chain.id } as never);
         setState({ status: "pending", hash });
-        const receipt = await runtime.client.waitForTransactionReceipt({ hash, pollingInterval: 500 });
+        let replaced: ReplacementReason | null = null;
+        const receipt = await runtime.client.waitForTransactionReceipt({
+          hash,
+          pollingInterval: 500,
+          timeout: RECEIPT_TIMEOUT_MS,
+          onReplaced: (r) => {
+            replaced = r.reason;
+          },
+        });
+        if (replaced !== null && replacementOutcome(replaced) === "did-not-happen") {
+          setState({
+            status: "failed",
+            hash: receipt.transactionHash,
+            error: {
+              code: "replaced",
+              message:
+                replaced === "cancelled"
+                  ? "You cancelled this transaction in your wallet, so it didn't happen."
+                  : "Your wallet replaced this transaction with a different one, so this action didn't happen.",
+            },
+          });
+          await qc.invalidateQueries({ queryKey: ["ostrakon"] });
+          return null;
+        }
+        hash = receipt.transactionHash; // a repriced (sped-up) replacement has a new hash
         if (receipt.status !== "success") {
           setState({
             status: "failed",

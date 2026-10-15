@@ -1,18 +1,22 @@
-// Seeds a demo world: six elections across every phase and both ballot modes, with demo voters in
-// different states.
-import { keccak256, toHex, type Address } from "viem";
+// Seeds a demo world: seven elections across every phase, both ballot modes and a Merkle
+// allowlist, with demo voters in different states.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { getAddress, keccak256, toHex, type Address } from "viem";
+import { buildAllowlist } from "../../web/src/lib/allowlist.ts";
 import { commitmentHash } from "../../web/src/chain/reads.ts";
 import { account, CHAIN_ID, publicClient, send } from "./chain.ts";
 
 export const ROLES: Record<number, string> = {
-  0: "Admin of #1 Student Council, #3 Robotics Club, #5 Hostel Mess, #6 Sports Captain (deployer)",
+  0: "Admin of #1 Student Council, #3 Robotics Club, #5 Hostel Mess, #6 Sports Captain, #7 Alumni Board (deployer)",
   1: "Admin of #2 Library Hours, #4 Cultural Fest",
   2: "Voter: voted #1, #3, #4 · sealed a secret vote in #6 · registered #2, #5",
   3: "Voter: voted #1, #3, #4 · sealed a secret vote in #6 · registered #2, #5",
-  4: "Voter: voted #1, #3 · registered #5 · can seal a secret vote in #6",
-  5: "Voter: registered #1 (not voted), voted #3 · can seal a secret vote in #6",
-  6: "Voter: registered #1 (not voted)",
-  7: "Not registered anywhere (use to see the read-only / ineligible states)",
+  4: "Voter: voted #1, #3 · registered #5 · can seal a secret vote in #6 · on the #7 allowlist",
+  5: "Voter: registered #1 (not voted), voted #3 · can seal a secret vote in #6 · on the #7 allowlist",
+  6: "Voter: registered #1 (not voted) · on the #7 allowlist",
+  7: "Not registered or listed anywhere (use to see the read-only / ineligible states)",
 };
 
 const addr = (i: number): Address => account(i).address;
@@ -96,4 +100,18 @@ export async function seed(contract: Address): Promise<void> {
     const salt = keccak256(toHex(`ostrakon-demo-seed-${who}`));
     await send(contract, who, "commitVote", [6n, commitmentHash(CHAIN_ID, contract, 6n, addr(who), choice, salt)]);
   }
+
+  // #7 Open ballot with a Merkle allowlist of 1,003 addresses (#4, #5, #6 plus 1,000 generated ones),
+  // in Voting. Nobody is registered yet: listed voters register in the same transaction as their vote.
+  // The tree is served by the app at /allowlists/7.json, the link published on chain.
+  await send(contract, 0, "createElection", ["Alumni Board (allowlist)", ["Rohan Iyer", "Asha Kulkarni"], 0n, 0n]);
+  const generated = Array.from({ length: 1000 }, (_, i) =>
+    getAddress(`0x${keccak256(toHex(`ostrakon-demo-alumnus-${i}`)).slice(26)}`),
+  );
+  const list = buildAllowlist([...many(4, 5, 6), ...generated]);
+  const file = join(dirname(fileURLToPath(import.meta.url)), "../../web/public/allowlists/7.json");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, list.json);
+  await send(contract, 0, "setAllowlist", [7n, list.root, "/allowlists/7.json"]);
+  await send(contract, 0, "advancePhase", [7n]);
 }

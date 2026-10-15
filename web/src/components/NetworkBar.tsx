@@ -1,3 +1,4 @@
+import { useId, useState } from "react";
 import { useElections, useMyStatuses } from "../chain/hooks";
 import { useRuntime } from "../chain/runtime";
 import { useWallet } from "../chain/wallet";
@@ -84,10 +85,53 @@ function ConnectControl() {
     case "no-wallet":
       return <span className="netbar-note">No wallet · read-only</span>;
     default:
-      return (
+      return wallet.wallets.length > 1 ? (
+        <WalletChooser />
+      ) : (
         <button type="button" className="btn btn-solid" onClick={() => void wallet.connect()}>
           Connect wallet
         </button>
       );
   }
+}
+
+/** Several wallets announced themselves (EIP-6963): let the user pick which one to use. */
+function WalletChooser() {
+  const wallet = useWallet();
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+  return (
+    <div className="chooser">
+      <button
+        type="button"
+        className="btn btn-solid"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(ev) => {
+          if (ev.key === "Escape") setOpen(false);
+        }}
+      >
+        Connect wallet
+      </button>
+      {open && (
+        <ul id={menuId} className="chooser-menu" aria-label="Choose a wallet">
+          {wallet.wallets.map((w) => (
+            <li key={w.id}>
+              <button
+                type="button"
+                className="btn btn-quiet"
+                onClick={() => {
+                  setOpen(false);
+                  void wallet.connect(w.id);
+                }}
+              >
+                {w.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }

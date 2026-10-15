@@ -47,6 +47,10 @@ export interface ElectionSummary {
   revealEnd: bigint;
   /** Secret ballot: sealed votes submitted during Voting. Always 0 for open ballots. */
   committed: number;
+  /** Nominated admin awaiting `acceptAdmin` (zero address if none). */
+  pendingAdmin: Address;
+  /** Merkle allowlist root (zero hash if none). */
+  allowlistRoot: Hex;
 }
 
 export interface ElectionDetail extends ElectionSummary {
@@ -79,6 +83,8 @@ type RawView = {
   secret: boolean;
   revealEnd: bigint;
   committed: bigint;
+  pendingAdmin: Address;
+  allowlistRoot: Hex;
 };
 
 export function toSummary(v: RawView): ElectionSummary {
@@ -101,6 +107,8 @@ export function toSummary(v: RawView): ElectionSummary {
     secret: v.secret,
     revealEnd: v.revealEnd,
     committed: Number(v.committed),
+    pendingAdmin: v.pendingAdmin,
+    allowlistRoot: v.allowlistRoot,
   };
 }
 
@@ -170,6 +178,16 @@ export async function getVoterStatus(
   return { registered, voted, revealed };
 }
 
+/** The election's allowlist root (zero hash if none) and the URI where the admin published the tree. */
+export async function getAllowlist(
+  client: PublicClient,
+  address: Address,
+  id: bigint,
+): Promise<{ root: Hex; uri: string }> {
+  const [root, uri] = await client.readContract({ address, abi: ostrakonAbi, functionName: "getAllowlist", args: [id] });
+  return { root, uri };
+}
+
 /** The sealed commitment `voter` submitted (zero hash if none). Public data. */
 export async function getCommitment(client: PublicClient, address: Address, id: bigint, voter: Address): Promise<Hex> {
   return client.readContract({ address, abi: ostrakonAbi, functionName: "commitmentOf", args: [id, voter] });
@@ -221,6 +239,8 @@ export type OstrakonEventName =
   | "PhaseChanged"
   | "Voted"
   | "VoteCommitted"
+  | "AdminTransferStarted"
+  | "AllowlistSet"
   | "Finalized"
   | "AdminTransferred";
 

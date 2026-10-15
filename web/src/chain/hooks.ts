@@ -145,6 +145,8 @@ export function useWalletController() {
   );
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<Curated | null>(null);
+  /** Wallets that actually have a provider in this browser (EIP-6963 announcements included). */
+  const [wallets, setWallets] = useState<WalletOption[]>([]);
 
   // Detect whether any wallet is installed, and whether an installed MetaMask is locked.
   useEffect(() => {
@@ -152,11 +154,13 @@ export function useWalletController() {
     void (async () => {
       let found = false;
       let isLocked = false;
+      const usable: WalletOption[] = [];
       for (const c of connectors) {
         try {
           const p = (await c.getProvider()) as MaybeMetaMask | undefined;
           if (!p) continue;
           found = true;
+          usable.push({ id: c.uid, name: c.name, generic: c.id === "injected" });
           const unlocked = await p._metamask?.isUnlocked?.();
           if (unlocked === false) isLocked = true;
         } catch (err) {
@@ -166,6 +170,7 @@ export function useWalletController() {
       if (!cancelled) {
         setHasProvider(found);
         setLocked(isLocked);
+        setWallets(pickWallets(usable));
       }
     })();
     return () => {
@@ -189,16 +194,18 @@ export function useWalletController() {
     state = { kind: "disconnected" };
   }
 
-  const doConnect = useCallback(async () => {
+  const doConnect = useCallback(async (walletId?: string) => {
     setError(null);
-    const connector = connectors[0];
+    // An explicit choice, else the only usable wallet, else the first one found.
+    const chosen = walletId ?? wallets[0]?.id;
+    const connector = connectors.find((c) => c.uid === chosen) ?? connectors[0];
     if (!connector) return;
     try {
       await connect.mutateAsync({ connector, chainId: runtime.chain.id });
     } catch (err) {
       setError(decodeError(err));
     }
-  }, [connect, connectors, runtime.chain.id]);
+  }, [connect, connectors, wallets, runtime.chain.id]);
 
   const doSwitch = useCallback(async () => {
     setError(null);
@@ -215,7 +222,25 @@ export function useWalletController() {
     disconnect.mutate();
   }, [disconnect]);
 
-  return { state, error, connect: doConnect, switchChain: doSwitch, disconnect: doDisconnect };
+  return { state, error, wallets, connect: doConnect, switchChain: doSwitch, disconnect: doDisconnect };
+}
+
+export interface WalletOption {
+  /** wagmi connector uid */
+  id: string;
+  name: string;
+  /** The generic window.ethereum connector (not an EIP-6963 announcement). */
+  generic: boolean;
+}
+
+/**
+ * Which wallets to offer. EIP-6963 announcements name each extension precisely; the generic
+ * window.ethereum connector is dropped when any announced wallet exists, because it is one of
+ * them (whichever extension won the window.ethereum race).
+ */
+export function pickWallets(usable: readonly WalletOption[]): WalletOption[] {
+  const named = usable.filter((w) => !w.generic);
+  return named.length > 0 ? named : [...usable];
 }
 
 /** Address of the connected account when it is on the right chain, else undefined. */

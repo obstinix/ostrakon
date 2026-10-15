@@ -22,7 +22,7 @@ test("capture", async ({ page }) => {
 
   await page.goto("/");
   await connect(page);
-  await expect(page.locator(".ledger-item")).toHaveCount(6);
+  await expect(page.locator(".ledger-item")).toHaveCount(7);
   await page.locator(".ledger-item").nth(4).getByRole("button", { name: "On-chain record" }).click();
   await page.screenshot({ path: out("ledger"), fullPage: true });
 
@@ -52,7 +52,7 @@ test("capture", async ({ page }) => {
 
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto("/");
-  await expect(page.locator(".ledger-item")).toHaveCount(6);
+  await expect(page.locator(".ledger-item")).toHaveCount(7);
   await page.screenshot({ path: out("mobile-ledger"), fullPage: true });
 });
 

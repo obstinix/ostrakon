@@ -20,7 +20,7 @@ const ANVIL_ACCOUNTS: readonly Address[] = [
 declare global {
   interface Window {
     /** Set by Playwright via addInitScript. `mock: false` leaves only the injected connector. */
-    __OSTRAKON_E2E__?: { account?: number; connectError?: boolean; mock?: boolean };
+    __OSTRAKON_E2E__?: { account?: number; connectError?: boolean; mock?: boolean; signError?: boolean };
   }
 }
 
@@ -33,6 +33,6 @@ export function testConnector() {
   const idx = Math.min(Math.max(opts.account ?? 0, 0), ANVIL_ACCOUNTS.length - 1);
   return mock({
     accounts: [ANVIL_ACCOUNTS[idx]!],
-    features: { connectError: opts.connectError ?? false, reconnect: true },
+    features: { connectError: opts.connectError ?? false, signMessageError: opts.signError ?? false, reconnect: true },
   });
 }

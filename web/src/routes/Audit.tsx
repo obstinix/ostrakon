@@ -12,7 +12,9 @@ const EVENTS: AuditEntry["eventName"][] = [
   "Voted",
   "VoteCommitted",
   "Finalized",
+  "AdminTransferStarted",
   "AdminTransferred",
+  "AllowlistSet",
 ];
 
 function Args({ ev }: { ev: AuditEntry }) {

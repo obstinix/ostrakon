@@ -1,9 +1,13 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { zeroHash, type Address } from "viem";
+import { zeroAddress, zeroHash, type Address, type Hex as HexStr } from "viem";
+import { signMessage } from "wagmi/actions";
+import { useQuery } from "@tanstack/react-query";
 import { useAccount, useAuditLog, useCommitment, useElection, useVoterStatus } from "../chain/hooks";
+import { decodeError } from "../chain/errors";
 import {
   commitmentHash,
+  getAllowlist,
   leaders,
   PHASES,
   phasesFor,
@@ -14,16 +18,18 @@ import {
   type PhaseName,
   type VoterStatus,
 } from "../chain/reads";
-import { useRuntime } from "../chain/runtime";
+import { useKeyBase, useRuntime } from "../chain/runtime";
 import { isBusy, useTx } from "../chain/tx";
 import { useWallet } from "../chain/wallet";
 import { Hex } from "../components/Copy";
 import { CountUp, FillBar, useReducedMotion, useScrollProgress, useTilt } from "../components/motion";
+import { AllowlistLoader, useAllowlistMembership, type Membership } from "../components/Allowlist";
 import { Pending } from "../components/Pending";
 import { PhaseMark } from "../components/PhaseMark";
 import { TxStatus } from "../components/TxStatus";
 import { fmtTime, pct, plural, sameAddr } from "../lib/format";
 import { downloadReceipt, loadReceipt, newSalt, parseReceipt, saveReceipt, type Receipt } from "../lib/receipts";
+import { findChoice, recoveryMessage, saltFromSignature } from "../lib/recovery";
 
 export function parseId(raw: string | undefined): bigint | null {
   return raw && /^\d{1,9}$/.test(raw) && raw !== "0" ? BigInt(raw) : null;
@@ -43,8 +49,13 @@ export function ElectionPage() {
   if (id === null) return <NotFound />;
   if (election.isPending) return <Pending what="election" />;
   if (election.isError) return <NotFound />;
-  const e = election.data;
+  return <ElectionLoaded e={election.data} status={status.data} account={account} />;
+}
+
+function ElectionLoaded({ e, status, account }: { e: ElectionDetail; status?: VoterStatus; account?: Address }) {
   const isAdmin = sameAddr(e.admin, account);
+  const allow = useAllowlistMembership(e, account);
+  const membership = allow.membership;
 
   let countLine: string;
   if (!e.secret) countLine = `${plural(e.totalVotes, "vote")} of ${plural(e.voterCount, "registered voter")}`;
@@ -71,6 +82,13 @@ export function ElectionPage() {
           )}
         </div>
         <Schedule e={e} />
+        {e.allowlistRoot !== zeroHash && (
+          <p className="small">
+            Eligibility: an allowlist of addresses (Merkle root <Hex value={e.allowlistRoot} label="allowlist root" />)
+            {" "}plus any voters the admin registered directly. Listed voters register themselves when they vote.
+          </p>
+        )}
+        <Nomination e={e} account={account} />
         {e.secret && (
           <p className="small secret-note">
             Votes are sealed during Voting and only opened by each voter in the Reveal phase. Until then the chain
@@ -88,13 +106,13 @@ export function ElectionPage() {
               {countLine}
             </p>
           </div>
-          <Ballot e={e} status={status.data} account={account} />
+          <Ballot e={e} status={status} account={account} membership={membership} />
         </section>
         <aside className="el-side" aria-label="Your status and result">
           {e.secret ? (
-            <SecretPanel e={e} status={status.data} account={account} />
+            <SecretPanel e={e} status={status} account={account} membership={membership} allow={allow} />
           ) : (
-            <Eligibility e={e} status={status.data} account={account} />
+            <Eligibility e={e} status={status} account={account} membership={membership} allow={allow} />
           )}
           <Result e={e} />
         </aside>
@@ -102,6 +120,38 @@ export function ElectionPage() {
 
       <Lifecycle e={e} />
     </article>
+  );
+}
+
+/** Two-step admin hand-over: the nominee accepts here; everyone else sees that one is pending. */
+function Nomination({ e, account }: { e: ElectionDetail; account?: Address }) {
+  const tx = useTx();
+  if (e.pendingAdmin === zeroAddress) return null;
+  if (!sameAddr(e.pendingAdmin, account)) {
+    return (
+      <p className="small">
+        Admin hand-over pending: <Hex value={e.pendingAdmin} label="nominated admin" /> has been nominated and hasn't
+        accepted yet.
+      </p>
+    );
+  }
+  return (
+    <section className="panel nomination" aria-labelledby="nom-title" data-testid="nomination">
+      <h2 id="nom-title">You've been nominated as admin</h2>
+      <p>
+        The current admin wants to hand this election to you. Accepting makes you its admin: you'll run its phases and
+        the previous admin loses control.
+      </p>
+      <button
+        type="button"
+        className="btn btn-solid"
+        disabled={isBusy(tx.state)}
+        onClick={() => void tx.run({ functionName: "acceptAdmin", args: [e.id] })}
+      >
+        Accept admin role
+      </button>
+      <TxStatus state={tx.state} onDismiss={tx.reset} />
+    </section>
   );
 }
 
@@ -137,19 +187,53 @@ function Schedule({ e }: { e: ElectionDetail }) {
 
 // ------------------------------------------------------------------ ballot
 
-function Ballot({ e, status, account }: { e: ElectionDetail; status?: VoterStatus; account?: Address }) {
+function Ballot({
+  e,
+  status,
+  account,
+  membership,
+}: {
+  e: ElectionDetail;
+  status?: VoterStatus;
+  account?: Address;
+  membership: Membership;
+}) {
   const { runtime } = useRuntime();
   const tx = useTx();
   const [open, setOpen] = useState<number | null>(null);
-  const canVote = e.phase === "Voting" && !!account && !!status?.registered && !status.voted;
+  const [signing, setSigning] = useState<string | null>(null);
+  // A listed voter who hasn't claimed yet votes with their proof, registering in the same transaction.
+  const proof = !status?.registered && membership.status === "member" ? membership.proof : null;
+  const eligible = !!status?.registered || !!proof;
+  const canVote = e.phase === "Voting" && !!account && !!status && eligible && !status.voted;
   const visible = talliesVisible(e);
   const lead = visible && e.totalVotes > 0 ? leaders(e.tallies) : [];
 
-  const castOpen = (i: number) => void tx.run({ functionName: "vote", args: [e.id, BigInt(i)] });
+  const castOpen = (i: number) =>
+    void (proof
+      ? tx.run({ functionName: "voteWithProof", args: [e.id, BigInt(i), proof] })
+      : tx.run({ functionName: "vote", args: [e.id, BigInt(i)] }));
 
-  const seal = (i: number) => {
+  const seal = async (i: number) => {
     if (!account) return;
-    const salt = newSalt();
+    // Prefer a salt the wallet can reproduce later (receipt recovery); fall back to random.
+    let salt: HexStr;
+    let recoverable = false;
+    setSigning("Sign the message in your wallet. It makes your receipt recoverable and costs nothing.");
+    try {
+      const sig = await signMessage(runtime.wagmi, {
+        message: recoveryMessage(runtime.chain.id, runtime.deployment.address, e.id),
+      });
+      salt = saltFromSignature(sig);
+      recoverable = true;
+      setSigning(null);
+    } catch (err) {
+      console.error("[ostrakon] recovery signature declined or failed; using a random salt", err);
+      salt = newSalt();
+      setSigning(
+        "No signature, so this vote uses a random secret: keep the receipt (download it below), because your wallet can't rebuild it.",
+      );
+    }
     const commitment = commitmentHash(
       runtime.chain.id,
       runtime.deployment.address,
@@ -168,8 +252,11 @@ function Ballot({ e, status, account }: { e: ElectionDetail; status?: VoterStatu
       candidateIndex: i,
       salt,
       commitment,
+      recoverable,
     });
-    void tx.run({ functionName: "commitVote", args: [e.id, commitment] });
+    void (proof
+      ? tx.run({ functionName: "commitVoteWithProof", args: [e.id, commitment, proof] })
+      : tx.run({ functionName: "commitVote", args: [e.id, commitment] }));
   };
 
   return (
@@ -190,11 +277,16 @@ function Ballot({ e, status, account }: { e: ElectionDetail; status?: VoterStatu
               canVote={canVote}
               secret={e.secret}
               busy={isBusy(tx.state)}
-              onVote={() => (e.secret ? seal(i) : castOpen(i))}
+              onVote={() => (e.secret ? void seal(i) : castOpen(i))}
             />
           </li>
         ))}
       </ul>
+      {signing && (
+        <p className="small signing" role="status">
+          {signing}
+        </p>
+      )}
       <TxStatus state={tx.state} onDismiss={tx.reset} />
     </>
   );
@@ -305,8 +397,60 @@ function CandidateCard(p: {
 
 // ------------------------------------------------------------------ side panels
 
-function Eligibility({ e, status, account }: { e: ElectionDetail; status?: VoterStatus; account?: Address }) {
+type AllowlistApi = ReturnType<typeof useAllowlistMembership>;
+
+/** Eligibility copy for an unregistered account in an election that has an allowlist. */
+function allowlistState(e: ElectionDetail, membership: Membership, allow: AllowlistApi, uri: string) {
+  switch (membership.status) {
+    case "member":
+      return {
+        title: e.phase === "Registration" ? "You're on the allowlist" : "You can vote (allowlist)",
+        body:
+          e.phase === "Registration"
+            ? "Your address is on the published list. When voting opens you'll be registered in the same transaction as your vote."
+            : "Your address is on the published list. Your vote registers you and counts in one transaction.",
+      };
+    case "not-member":
+      return {
+        title: "Not on the allowlist",
+        body: "The published list doesn't include this address, and the admin hasn't registered it directly.",
+      };
+    case "checking":
+      return { title: "Checking the allowlist", body: "Checking your address against the list…" };
+    default:
+      return {
+        title: "Check the allowlist",
+        body: <AllowlistLoader uri={uri} problem={allow.problem} offer={allow.offer} fetchFrom={allow.fetchFrom} />,
+      };
+  }
+}
+
+function useAllowlistUri(e: ElectionDetail): string {
+  const { runtime } = useRuntime();
+  const base = useKeyBase();
+  const q = useQuery({
+    queryKey: [...base, "allowlist", e.id.toString()],
+    queryFn: () => getAllowlist(runtime.client, runtime.deployment.address, e.id),
+    enabled: e.allowlistRoot !== zeroHash,
+  });
+  return q.data?.uri ?? "";
+}
+
+function Eligibility({
+  e,
+  status,
+  account,
+  membership,
+  allow,
+}: {
+  e: ElectionDetail;
+  status?: VoterStatus;
+  account?: Address;
+  membership: Membership;
+  allow: AllowlistApi;
+}) {
   const wallet = useWallet();
+  const uri = useAllowlistUri(e);
   let title: string;
   let body: ReactNode;
   if (!account) {
@@ -325,6 +469,8 @@ function Eligibility({ e, status, account }: { e: ElectionDetail; status?: Voter
         The chain records a vote from this account. <Link to="/audit#verify">Verify it in the audit trail</Link>.
       </>
     );
+  } else if (!status.registered && membership.status !== "none" && e.phase !== "Ended") {
+    ({ title, body } = allowlistState(e, membership, allow, uri));
   } else if (!status.registered) {
     title = "Not on the voter list";
     body = "This account isn't registered for this election. Only the admin can add voters, during Registration.";
@@ -349,13 +495,28 @@ function Eligibility({ e, status, account }: { e: ElectionDetail; status?: Voter
 }
 
 /** Secret ballot: eligibility, receipt safekeeping and the reveal action, by phase. */
-function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: VoterStatus; account?: Address }) {
+function SecretPanel({
+  e,
+  status,
+  account,
+  membership,
+  allow,
+}: {
+  e: ElectionDetail;
+  status?: VoterStatus;
+  account?: Address;
+  membership: Membership;
+  allow: AllowlistApi;
+}) {
   const { runtime } = useRuntime();
   const wallet = useWallet();
   const tx = useTx();
+  const uri = useAllowlistUri(e);
   const commitment = useCommitment(e.id, account, !!status?.voted);
   const [pasted, setPasted] = useState("");
   const [pasteProblem, setPasteProblem] = useState<string | null>(null);
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
+  const [, setReceiptVersion] = useState(0); // bump to re-read localStorage after a recovery
 
   const stored = account ? loadReceipt(runtime.chain.id, runtime.deployment.address, e.id, account) : null;
   const onChain = commitment.data;
@@ -374,6 +535,53 @@ function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: Voter
   const reveal = (r: Receipt) =>
     void tx.run({ functionName: "revealVote", args: [e.id, BigInt(r.candidateIndex), r.salt] });
 
+  /** Rebuild the receipt from a fresh wallet signature (works if the vote was sealed with one). */
+  const recover = async () => {
+    setRecoverMsg(null);
+    if (!account || !onChain) return;
+    try {
+      const sig = await signMessage(runtime.wagmi, {
+        message: recoveryMessage(runtime.chain.id, runtime.deployment.address, e.id),
+      });
+      const salt = saltFromSignature(sig);
+      const idx = findChoice(
+        runtime.chain.id,
+        runtime.deployment.address,
+        e.id,
+        account,
+        salt,
+        e.candidateCount,
+        onChain,
+      );
+      if (idx === null) {
+        setRecoverMsg(
+          "Your wallet's signature doesn't reproduce this sealed vote: it was sealed with a random secret. Use the receipt file instead.",
+        );
+        return;
+      }
+      saveReceipt({
+        v: 1,
+        chainId: runtime.chain.id,
+        contract: runtime.deployment.address,
+        electionId: e.id.toString(),
+        voter: account,
+        candidateIndex: idx,
+        salt,
+        commitment: onChain,
+        recoverable: true,
+      });
+      setReceiptVersion((n) => n + 1);
+      setRecoverMsg("Receipt recovered from your wallet.");
+    } catch (err) {
+      setRecoverMsg(decodeError(err).message);
+    }
+  };
+  const recoverButton = (
+    <button type="button" className="btn btn-quiet" onClick={() => void recover()}>
+      Recover with my wallet
+    </button>
+  );
+
   let title: string;
   let body: ReactNode;
   if (!account) {
@@ -385,6 +593,19 @@ function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: Voter
   } else if (!status) {
     title = "Your eligibility";
     body = "Checking the voter list…";
+  } else if (
+    !status.registered &&
+    membership.status !== "none" &&
+    (e.phase === "Registration" || e.phase === "Voting")
+  ) {
+    ({ title, body } = allowlistState(e, membership, allow, uri));
+    if (membership.status === "member") {
+      body = (
+        <>
+          {body} Open a candidate card to seal your vote; it stays hidden until you reveal it.
+        </>
+      );
+    }
   } else if (!status.registered) {
     title = "Not on the voter list";
     body = "This account isn't registered for this election. Only the admin can add voters, during Registration.";
@@ -411,14 +632,19 @@ function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: Voter
     title = "Your vote is sealed";
     body = storedMatches ? (
       <>
-        The chain holds your sealed vote. This browser has the receipt you'll need to reveal it.{" "}
+        The chain holds your sealed vote. This browser has the receipt you'll need to reveal it
+        {stored?.recoverable ? ", and your wallet can rebuild it if it's lost" : " (your wallet can't rebuild this one)"}.{" "}
         <button type="button" className="btn-link" onClick={() => downloadReceipt(stored!)}>
           Download a copy
         </button>{" "}
         in case you switch browsers or clear site data.
       </>
     ) : (
-      "The chain holds your sealed vote. This browser has no receipt for it: when Reveal opens, bring the receipt file from the device you sealed it on."
+      <>
+        The chain holds your sealed vote, but this browser has no receipt for it. If you sealed it with a wallet
+        signature you can rebuild the receipt now; otherwise bring the receipt file when Reveal opens.
+        <span className="btn-row">{recoverButton}</span>
+      </>
     );
   } else if (e.phase === "Reveal") {
     title = "Reveal your vote";
@@ -438,7 +664,9 @@ function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: Voter
       </>
     ) : (
       <>
-        No matching receipt in this browser. Paste the contents of your receipt file:
+        No matching receipt in this browser. Rebuild it with the wallet that sealed the vote:
+        <span className="btn-row">{recoverButton}</span>
+        Or paste the contents of your receipt file:
         <label className="field reveal-paste">
           <span className="sr-only">Receipt JSON</span>
           <textarea
@@ -481,6 +709,11 @@ function SecretPanel({ e, status, account }: { e: ElectionDetail; status?: Voter
     <section className="panel" aria-labelledby="elig-title" data-testid="eligibility">
       <h2 id="elig-title">{title}</h2>
       <div className="panel-body">{body}</div>
+      {recoverMsg && (
+        <p className="small" role="status">
+          {recoverMsg}
+        </p>
+      )}
       <TxStatus state={tx.state} onDismiss={tx.reset} />
     </section>
   );
@@ -577,8 +810,12 @@ function eventLabel(ev: AuditEntry, e: ElectionDetail): string {
       return "Vote sealed";
     case "Finalized":
       return "Result finalized";
+    case "AdminTransferStarted":
+      return ev.args.pendingAdmin === zeroAddress ? "Hand-over cancelled" : "Admin nominated";
     case "AdminTransferred":
       return "Admin transferred";
+    case "AllowlistSet":
+      return ev.args.root === zeroHash ? "Allowlist removed" : "Allowlist published";
   }
 }
 
@@ -605,6 +842,10 @@ function describe(ev: AuditEntry, e: ElectionDetail): ReactNode {
       return a.tie ? "Tie" : `Winner: ${e.candidates[Number(a.winner)]}`;
     case "AdminTransferred":
       return <Hex value={a.newAdmin as string} label="new admin" copy={false} />;
+    case "AdminTransferStarted":
+      return a.pendingAdmin === zeroAddress ? "-" : <Hex value={a.pendingAdmin as string} label="nominee" copy={false} />;
+    case "AllowlistSet":
+      return a.root === zeroHash ? "-" : <Hex value={a.root as string} label="allowlist root" copy={false} />;
     default:
       return `${e.candidateCount} candidates${e.secret ? " · secret ballot" : ""}`;
   }

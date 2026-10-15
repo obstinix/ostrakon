@@ -32,3 +32,5 @@ Thumbs.db
 web/src/generated/
 web/public/deployment.json
 dist-e2e/
+web/public/allowlists/
+dist-e2e/allowlists/

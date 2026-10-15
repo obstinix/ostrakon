@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { getAddress, isAddress } from "viem";
+import { getAddress, isAddress, zeroAddress, zeroHash, type Hex } from "viem";
 import { useAccount, useElection, useVoters } from "../chain/hooks";
 import { phasesFor, phaseStep, type ElectionDetail } from "../chain/reads";
+import { useRuntime } from "../chain/runtime";
 import { isBusy, useTx } from "../chain/tx";
-import { Hex } from "../components/Copy";
+import { Hex as HexText } from "../components/Copy";
 import { Pending } from "../components/Pending";
 import { PhaseMark } from "../components/PhaseMark";
 import { TxStatus } from "../components/TxStatus";
@@ -37,7 +38,7 @@ export function ManagePage() {
         <p className="eyebrow">Election No. {e.id.toString()}</p>
         <h1 id="m-title">Admin only</h1>
         <p>
-          Only this election's admin can manage it. The admin is <Hex value={e.admin} label="admin address" />.
+          Only this election's admin can manage it. The admin is <HexText value={e.admin} label="admin address" />.
           {account ? " Your connected account is not the admin." : " Connect the admin's wallet to continue."}
         </p>
         <Link to={`/e/${e.id.toString()}`}>Back to the election</Link>
@@ -62,6 +63,7 @@ export function ManagePage() {
       <div className="manage-grid">
         <PhaseControl e={e} />
         <RegisterVoters e={e} />
+        <Allowlist e={e} />
         <VoterList e={e} />
         <TransferAdmin e={e} />
       </div>
@@ -238,7 +240,7 @@ function VoterList({ e }: { e: ElectionDetail }) {
         <ol className="voter-list">
           {list.slice(0, shown).map((v) => (
             <li key={v}>
-              <Hex value={v} label="voter address" />
+              <HexText value={v} label="voter address" />
             </li>
           ))}
         </ol>
@@ -256,28 +258,159 @@ function TransferAdmin({ e }: { e: ElectionDetail }) {
   const tx = useTx();
   const [to, setTo] = useState("");
   const trimmed = to.trim();
-  const valid = isAddress(trimmed) && !/^0x0{40}$/i.test(trimmed);
+  const valid = isAddress(trimmed) && !/^0x0{40}$/i.test(trimmed) && !sameAddr(trimmed, e.admin);
+  const pending = e.pendingAdmin !== zeroAddress;
   return (
-    <section className="panel" aria-labelledby="ta-title">
-      <h2 id="ta-title">Transfer admin</h2>
+    <section className="panel" aria-labelledby="ta-title" data-testid="transfer-admin">
+      <h2 id="ta-title">Hand over admin</h2>
       <p className="small">
-        Hands this election to another address in one step. Double-check it: a mistyped address loses control of the
-        election.
+        Two steps: you nominate an address, then that address accepts from its own wallet. You stay admin until it
+        does, so a mistyped address can't take or strand the election.
       </p>
+      {pending && (
+        <div className="pending-admin">
+          <p className="small">
+            Waiting for <HexText value={e.pendingAdmin} label="nominated admin" /> to accept.
+          </p>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={isBusy(tx.state)}
+            onClick={() => void tx.run({ functionName: "cancelAdminTransfer", args: [e.id] })}
+          >
+            Cancel nomination
+          </button>
+        </div>
+      )}
       <label className="field">
-        <span>New admin address</span>
+        <span>{pending ? "Nominate someone else instead" : "Nominate a new admin"}</span>
         <input className="mono" value={to} onChange={(ev) => setTo(ev.target.value)} spellCheck={false} />
       </label>
-      {trimmed && !valid && <p className="inline-error">That isn't a valid, non-zero address. Mixed-case input must match its checksum.</p>}
+      {trimmed && !valid && (
+        <p className="inline-error">
+          {sameAddr(trimmed, e.admin)
+            ? "That's already the admin."
+            : "That isn't a valid, non-zero address. Mixed-case input must match its checksum."}
+        </p>
+      )}
       <button
         type="button"
         className="btn btn-quiet"
         disabled={!valid || isBusy(tx.state)}
         onClick={() => void tx.run({ functionName: "transferAdmin", args: [e.id, getAddress(trimmed)] })}
       >
-        Transfer
+        Nominate
       </button>
       <TxStatus state={tx.state} onDismiss={tx.reset} />
+    </section>
+  );
+}
+
+/** Publish a Merkle-root allowlist (Registration only): build the tree locally, publish the root,
+ *  and hand the admin the tree file to distribute. */
+function Allowlist({ e }: { e: ElectionDetail }) {
+  const { runtime } = useRuntime();
+  const tx = useTx();
+  const [raw, setRaw] = useState("");
+  const [uri, setUri] = useState("");
+  const [built, setBuilt] = useState<{ root: Hex; size: number; json: string } | null>(null);
+  const preview = useMemo(() => previewVoters(raw, new Set()), [raw]);
+  const uriBytes = new TextEncoder().encode(uri.trim()).length;
+  const hasRoot = e.allowlistRoot !== zeroHash;
+
+  const build = async () => {
+    const { buildAllowlist } = await import("../lib/allowlist");
+    setBuilt(buildAllowlist(preview.add));
+  };
+  const publish = async () => {
+    if (!built) return;
+    const receipt = await tx.run({ functionName: "setAllowlist", args: [e.id, built.root, uri.trim()] });
+    if (receipt) {
+      const { saveTree } = await import("../lib/allowlist");
+      saveTree(runtime.chain.id, runtime.deployment.address, e.id, built.json);
+    }
+  };
+
+  return (
+    <section className="panel panel-wide" aria-labelledby="al-title" data-testid="allowlist-admin">
+      <h2 id="al-title">Allowlist (large electorates)</h2>
+      <p className="small">
+        Instead of registering every address, publish one fingerprint (a Merkle root) of the whole list. Listed voters
+        register themselves with a proof when they vote, paying their own gas. The list is frozen when voting opens.
+        Direct registration keeps working alongside it.
+      </p>
+      {hasRoot && (
+        <p className="small">
+          Current root: <HexText value={e.allowlistRoot} label="allowlist root" />. Publishing again replaces it.
+        </p>
+      )}
+      {e.phase !== "Registration" ? (
+        <p className="muted">The allowlist can only change during Registration.</p>
+      ) : (
+        <>
+          <label className="field">
+            <span>Eligible addresses (one per line, or separated by commas or spaces)</span>
+            <textarea
+              value={raw}
+              onChange={(ev) => {
+                setRaw(ev.target.value);
+                setBuilt(null);
+              }}
+              rows={5}
+              spellCheck={false}
+              className="mono"
+            />
+          </label>
+          {raw.trim() && (
+            <p className="small mono" aria-live="polite">
+              {preview.add.length} valid · {preview.duplicates.length} repeated · {preview.invalid.length + preview.zero}{" "}
+              invalid
+            </p>
+          )}
+          <label className="field">
+            <span>Where you'll publish the list (optional link, shown to voters)</span>
+            <input value={uri} onChange={(ev) => setUri(ev.target.value)} placeholder="https://…/allowlist.json" />
+            <small className="mono">{uriBytes}/256 bytes</small>
+          </label>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={preview.add.length === 0 || preview.invalid.length > 0}
+              onClick={() => void build()}
+            >
+              Build list
+            </button>
+            {built && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-solid"
+                  disabled={uriBytes > 256 || isBusy(tx.state)}
+                  onClick={() => void publish()}
+                >
+                  Publish root for {built.size} addresses
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  onClick={() => void import("../lib/allowlist").then((m) => m.downloadTree(e.id, built.json))}
+                >
+                  Download list file
+                </button>
+              </>
+            )}
+          </div>
+          {preview.invalid.length > 0 && <p className="inline-error">Fix the invalid entries before building.</p>}
+          {built && (
+            <p className="small">
+              Root <HexText value={built.root} label="new allowlist root" />. Publish the list file at the link above (or
+              send it to voters): they need it to prove they're on the list.
+            </p>
+          )}
+          <TxStatus state={tx.state} onDismiss={tx.reset} />
+        </>
+      )}
     </section>
   );
 }

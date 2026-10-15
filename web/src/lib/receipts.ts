@@ -12,6 +12,8 @@ export interface Receipt {
   candidateIndex: number;
   salt: Hex;
   commitment: Hex;
+  /** True when the salt came from a wallet signature, so the wallet alone can rebuild this receipt. */
+  recoverable?: boolean;
 }
 
 const key = (chainId: number, contract: string, electionId: bigint, voter: string) =>
@@ -62,7 +64,8 @@ export function parseReceipt(text: string): Receipt | null {
       r.salt.length !== 66 ||
       typeof r.commitment !== "string" ||
       !isHex(r.commitment) ||
-      r.commitment.length !== 66
+      r.commitment.length !== 66 ||
+      (r.recoverable !== undefined && typeof r.recoverable !== "boolean")
     ) {
       return null;
     }

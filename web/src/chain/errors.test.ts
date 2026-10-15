@@ -6,6 +6,7 @@ import {
   encodeErrorResult,
   HttpRequestError,
   UserRejectedRequestError,
+  WaitForTransactionReceiptTimeoutError,
 } from "viem";
 import { ostrakonAbi } from "../generated/ostrakonAbi";
 import { CONTRACT_ERROR_COPY, decodeError, GENERIC } from "./errors";
@@ -49,6 +50,9 @@ describe("decodeError", () => {
     expect(decodeError(new UserRejectedRequestError(new Error("x"))).code).toBe("rejected");
     expect(decodeError({ code: 4001, message: "User denied" }).code).toBe("rejected");
     expect(decodeError(new HttpRequestError({ url: "http://127.0.0.1:8545" })).code).toBe("network");
+    expect(decodeError(new WaitForTransactionReceiptTimeoutError({ hash: `0x${"ab".repeat(32)}` })).code).toBe(
+      "receipt-timeout",
+    );
   });
 
   it("unknown revert names fall back to curated generic revert copy", () => {

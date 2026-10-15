@@ -8,6 +8,7 @@ import {
   InsufficientFundsError,
   TimeoutError,
   UserRejectedRequestError,
+  WaitForTransactionReceiptTimeoutError,
   WebSocketRequestError,
 } from "viem";
 import { PHASES } from "./reads";
@@ -55,6 +56,11 @@ export const CONTRACT_ERROR_COPY: Record<string, ArgsMapper> = {
   AlreadyRevealed: () => "This vote has already been revealed and counted.",
   CommitmentMismatch: () =>
     "That receipt doesn't match the sealed vote on chain. Check that it is the receipt for this account and election.",
+  NotPendingAdmin: () => "This account hasn't been nominated as this election's admin.",
+  NoPendingAdmin: () => "There's no pending admin nomination to cancel.",
+  NoAllowlist: () => "This election has no allowlist, so a proof can't register you.",
+  NotOnAllowlist: () => "This account isn't on the election's allowlist, or the list you loaded doesn't match it.",
+  UriTooLong: () => "The allowlist link can be at most 256 bytes.",
 };
 
 export const GENERIC: Curated = { code: "unknown", message: "Something went wrong. Nothing was changed." };
@@ -76,6 +82,13 @@ export function decodeError(err: unknown): Curated {
     }
     if (hasCode(err, -32002)) {
       return { code: "pending-request", message: "Your wallet already has a request open. Open the wallet to continue." };
+    }
+    if (err.walk((e) => e instanceof WaitForTransactionReceiptTimeoutError)) {
+      return {
+        code: "receipt-timeout",
+        message:
+          "Sent, but not confirmed after 3 minutes. It may still go through: check the audit trail before trying again.",
+      };
     }
     if (err.walk((e) => e instanceof InsufficientFundsError)) {
       return { code: "funds", message: "This account doesn't have enough ETH to pay for gas." };

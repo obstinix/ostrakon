@@ -318,6 +318,27 @@ main:focus {
 .netbar .btn-solid {
   min-height: 2rem;
 }
+.chooser {
+  position: relative;
+}
+.chooser-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--s-1));
+  z-index: 30;
+  margin: 0;
+  padding: var(--s-2);
+  list-style: none;
+  display: grid;
+  gap: var(--s-1);
+  min-width: 12rem;
+  background: var(--ink);
+  border: 1px solid var(--night-edge);
+}
+.chooser-menu .btn {
+  width: 100%;
+  justify-content: flex-start;
+}
 .netbar-note {
   color: var(--night-2);
   white-space: nowrap;
@@ -582,6 +603,36 @@ main:focus {
   color: var(--ink-3);
   border: 1px dashed var(--rule-strong);
   padding: 0.2rem 0.35rem;
+}
+.allowlist-loader {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+.allowlist-loader .field {
+  justify-self: stretch;
+}
+.allowlist-loader input[type="file"] {
+  border-style: dashed;
+}
+.break {
+  overflow-wrap: anywhere;
+}
+.signing {
+  border-left: 3px solid var(--ochre);
+  padding-left: var(--s-3);
+}
+.pending-admin {
+  display: grid;
+  gap: var(--s-2);
+  justify-items: start;
+  border-left: 3px solid var(--ochre);
+  padding-left: var(--s-3);
+}
+.nomination {
+  margin-top: var(--s-4);
+  border-color: var(--clay);
+  border-width: 2px;
 }
 .ballot-mode {
   grid-template-columns: 1fr;

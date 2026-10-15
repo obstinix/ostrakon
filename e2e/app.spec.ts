@@ -111,7 +111,7 @@ test("read-only without a wallet: ledger, network bar, explanation", async ({ pa
   await expect(page.getByTestId("notice-no-wallet")).toBeVisible();
   await expect(page.getByTestId("block-number")).toHaveText(/#\d+/);
   await expect(page.getByTestId("role")).toHaveText("Read-only");
-  await expect(page.locator(".ledger-item")).toHaveCount(6);
+  await expect(page.locator(".ledger-item")).toHaveCount(7);
   await expect(page.locator(".ledger")).toContainText("Student Council 2026");
   await page.goto("/e/3");
   await expect(page.getByTestId("result")).toContainText("Meera Pillai");
@@ -337,7 +337,7 @@ test("anyone can create an election and lands on it", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("Candidates 1 and 2 have the same name.");
   await page.getByLabel(/Candidates, one per line/).fill("Alpha\nBeta");
   await page.getByRole("button", { name: "Create election" }).click();
-  await expect(page).toHaveURL(/\/e\/7$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/e\/8$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("E2E Committee");
   await expect(page.getByRole("link", { name: "Manage election" })).toBeVisible();
 
@@ -352,7 +352,7 @@ test("anyone can create an election and lands on it", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("needs a scheduled voting close too");
   await page.getByLabel("Reveal closes").fill("");
   await page.getByRole("button", { name: "Create election" }).click();
-  await expect(page).toHaveURL(/\/e\/8$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/e\/9$/, { timeout: 20_000 });
   await expect(page.locator(".el-meta")).toContainText("Secret ballot");
   await expect(page.locator(".phase-notches i")).toHaveCount(4);
 });

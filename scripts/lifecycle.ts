@@ -23,7 +23,7 @@ function ok(label: string, cond: boolean) {
 async function expectRejected(
   from: number,
   address: Address,
-  fn: "vote" | "revealVote" | "commitVote",
+  fn: "vote" | "revealVote" | "commitVote" | "setAllowlist" | "voteWithProof" | "acceptAdmin",
   args: readonly unknown[],
   errorName: string,
 ) {
@@ -155,6 +155,41 @@ try {
   ok("3 PhaseChanged (Voting, Reveal, Ended)", slog.filter((l) => l.eventName === "PhaseChanged").length === 3);
   const myCommits = await reads.findMyCommits(pc, C, BigInt(d.deployBlock), account(5).address);
   ok("findMyCommits finds #5's sealed vote", myCommits.length === 1 && myCommits[0]!.electionId === 2n);
+
+  // ---------------------------------------------------------------- Merkle allowlist
+  console.log("▸ allowlist: 500-address list built with @openzeppelin/merkle-tree (the app's builder)");
+  const { buildAllowlist, loadAllowlist, proofFor } = await import("../web/src/lib/allowlist.ts");
+  const filler = Array.from({ length: 497 }, (_, i) => `0x${(0x1000 + i).toString(16).padStart(40, "0")}` as Address);
+  const listed = [account(2).address, account(3).address, account(4).address, ...filler];
+  const built = buildAllowlist(listed);
+  const tree = loadAllowlist(built.json)!;
+  await send(C, admin, "createElection", ["Allowlist Check", ["Ada", "Grace"], 0n, 0n]);
+  await send(C, admin, "setAllowlist", [3n, built.root, "https://example.invalid/list.json"]);
+  const al = await reads.getAllowlist(pc, C, 3n);
+  ok("root and link read back through getAllowlist", al.root === built.root && al.uri === "https://example.invalid/list.json");
+  await send(C, 2, "registerWithProof", [3n, proofFor(tree, account(2).address)!]);
+  ok("#2 registered itself during Registration with a JS-built proof", (await reads.getVoterStatus(pc, C, 3n, account(2).address)).registered);
+  await send(C, admin, "advancePhase", [3n]);
+  const frozen = await expectRejected(admin, C, "setAllowlist", [3n, built.root, ""], "WrongPhase");
+  ok(`allowlist frozen once voting opens: "${frozen.curated?.message}"`, frozen.matched);
+  await send(C, 3, "voteWithProof", [3n, 1n, proofFor(tree, account(3).address)!]);
+  ok("#3 registered and voted in one transaction", (await reads.getVoterStatus(pc, C, 3n, account(3).address)).voted);
+  const outsider = await expectRejected(7, C, "voteWithProof", [3n, 0n, proofFor(tree, account(4).address)!], "NotOnAllowlist");
+  ok(`outsider using a member's proof rejected: "${outsider.curated?.message}"`, outsider.matched);
+  await send(C, 2, "vote", [3n, 0n]); // already registered: plain vote works
+  const al3 = await reads.getElectionDetail(pc, C, 3n);
+  ok("voterCount counts only claimed members (2 of 500)", al3.voterCount === 2 && al3.tallies.join() === "1,1");
+
+  // ---------------------------------------------------------------- two-step admin
+  console.log("▸ two-step admin hand-over");
+  await send(C, admin, "transferAdmin", [3n, account(5).address]);
+  let e3 = await reads.getElectionDetail(pc, C, 3n);
+  ok("nomination leaves the admin unchanged", e3.admin === account(admin).address && e3.pendingAdmin === account(5).address);
+  const wrongAccept = await expectRejected(6, C, "acceptAdmin", [3n], "NotPendingAdmin");
+  ok(`only the nominee can accept: "${wrongAccept.curated?.message}"`, wrongAccept.matched);
+  await send(C, 5, "acceptAdmin", [3n]);
+  e3 = await reads.getElectionDetail(pc, C, 3n);
+  ok("nominee accepted and is now admin", e3.admin === account(5).address && e3.pendingAdmin === "0x0000000000000000000000000000000000000000");
 
   console.log(`\nlifecycle: ${passed} assertions passed`);
 } catch (err) {
