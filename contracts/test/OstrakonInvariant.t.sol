@@ -3,17 +3,20 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Ostrakon} from "../src/Ostrakon.sol";
+import {MerkleHelper} from "./OstrakonAllowlist.t.sol";
 
 /// Drives random but well-formed sequences of calls against three elections (open/manual,
 /// open/scheduled, secret/manual) and records ghost state that the invariants compare with the
 /// contract.
-contract Handler is Test {
-    uint256 public constant N = 3;
+contract Handler is Test, MerkleHelper {
+    uint256 public constant N = 4;
     uint256 public constant SECRET = 2; // index into ids
+    uint256 public constant LISTED = 3; // open ballot whose voters come only from a Merkle allowlist
+    uint256 public constant LIST_SIZE = 4; // actors[0..3] are on the list, actors[4..7] are not
 
     Ostrakon public immutable o;
     address public immutable admin;
-    uint256[3] public ids;
+    uint256[4] public ids;
     address[] public actors;
 
     mapping(uint256 => mapping(address => uint256)) public ghostVotes;
@@ -27,14 +30,56 @@ contract Handler is Test {
     mapping(address => uint256) public ghostReveals;
     mapping(address => uint256) public ghostChoice;
     bool public tamperedRevealAccepted;
+    bool public outsiderClaimAccepted;
+    bytes32 public listRoot;
+    mapping(address => bytes32[]) internal proofs;
 
-    constructor(Ostrakon o_, address admin_, uint256[3] memory ids_) {
+    constructor(Ostrakon o_, address admin_, uint256[4] memory ids_) {
         o = o_;
         admin = admin_;
         ids = ids_;
         for (uint256 i = 0; i < 8; ++i) {
             actors.push(address(uint160(0xBEEF00 + i)));
         }
+        bytes32[] memory ls = new bytes32[](LIST_SIZE);
+        for (uint256 i = 0; i < LIST_SIZE; ++i) {
+            ls[i] = _leaf(actors[i]);
+        }
+        for (uint256 i = 0; i < LIST_SIZE; ++i) {
+            (bytes32 r, bytes32[] memory p) = _rootAndProof(ls, i);
+            listRoot = r;
+            for (uint256 j = 0; j < p.length; ++j) {
+                proofs[actors[i]].push(p[j]);
+            }
+        }
+    }
+
+    function isListed(address a) public view returns (bool) {
+        for (uint256 i = 0; i < LIST_SIZE; ++i) {
+            if (actors[i] == a) return true;
+        }
+        return false;
+    }
+
+    /// Claim a place on the allowlisted election; outsiders try a listed member's proof.
+    function claim(uint256 actorSeed, bool vote_, uint256 candidate) external {
+        uint256 id = ids[LISTED];
+        address who = actors[actorSeed % actors.length];
+        bytes32[] memory p = isListed(who) ? proofs[who] : proofs[actors[actorSeed % LIST_SIZE]];
+        candidate = bound(candidate, 0, 2);
+        vm.prank(who);
+        if (vote_) {
+            try o.voteWithProof(id, candidate, p) {
+                if (!isListed(who)) outsiderClaimAccepted = true;
+                ghostVotes[id][who] += 1;
+                ghostTotal[id] += 1;
+            } catch {}
+        } else {
+            try o.registerWithProof(id, p) {
+                if (!isListed(who)) outsiderClaimAccepted = true;
+            } catch {}
+        }
+        _checkPhases();
     }
 
     function actorCount() external view returns (uint256) {
@@ -58,7 +103,7 @@ contract Handler is Test {
     }
 
     function register(uint256 seed, uint256 actorSeed) external {
-        uint256 id = _id(seed);
+        uint256 id = ids[seed % 3]; // never registers explicitly in the allowlisted election
         address[] memory batch = new address[](3);
         for (uint256 i = 0; i < 3; ++i) {
             batch[i] = actors[(actorSeed + i * 3) % actors.length];
@@ -130,7 +175,7 @@ contract Handler is Test {
 contract OstrakonInvariantTest is Test {
     Ostrakon internal o;
     Handler internal h;
-    uint256[3] internal ids;
+    uint256[4] internal ids;
 
     function setUp() public {
         vm.warp(1_700_000_000);
@@ -144,14 +189,18 @@ contract OstrakonInvariantTest is Test {
         ids[0] = o.createElection("Manual", c, 0, 0);
         ids[1] = o.createElection("Scheduled", c, uint64(block.timestamp + 1 days), uint64(block.timestamp + 3 days));
         ids[2] = o.createSecretElection("Secret", c, 0, 0, 0);
+        ids[3] = o.createElection("Listed", c, 0, 0);
         vm.stopPrank();
         h = new Handler(o, admin, ids);
+        bytes32 root = h.listRoot();
+        vm.prank(admin);
+        o.setAllowlist(ids[3], root, "");
         targetContract(address(h));
     }
 
     /// Sum of candidate tallies always equals total votes, which equals successful vote/reveal calls.
     function invariant_talliesSumToTotal() public view {
-        for (uint256 k = 0; k < 3; ++k) {
+        for (uint256 k = 0; k < 4; ++k) {
             uint256[] memory t = o.getTallies(ids[k]);
             uint256 sum;
             for (uint256 i = 0; i < t.length; ++i) {
@@ -167,7 +216,8 @@ contract OstrakonInvariantTest is Test {
     /// No address can ever vote twice in an open ballot, and hasVoted agrees with history.
     function invariant_noDoubleVote() public view {
         uint256 n = h.actorCount();
-        for (uint256 k = 0; k < 2; ++k) {
+        for (uint256 k = 0; k < 4; ++k) {
+            if (k == 2) continue; // the secret ballot has its own invariant
             for (uint256 i = 0; i < n; ++i) {
                 address a = h.actors(i);
                 uint256 g = h.ghostVotes(ids[k], a);
@@ -201,17 +251,30 @@ contract OstrakonInvariantTest is Test {
         assertEq(o.getElection(ids[0]).committed, 0, "open ballots never record commitments");
     }
 
+    /// Merkle allowlist: only listed addresses can ever be registered in the allowlisted election
+    /// (it has no explicit registrations), and an outsider's claim is never accepted.
+    function invariant_allowlistOnlyListed() public view {
+        assertFalse(h.outsiderClaimAccepted(), "outsider claim accepted");
+        uint256 n = h.actorCount();
+        for (uint256 i = 0; i < n; ++i) {
+            address a = h.actors(i);
+            if (o.isRegistered(ids[3], a)) assertTrue(h.isListed(a), "unlisted address registered");
+        }
+        assertLe(o.voterCount(ids[3]), h.LIST_SIZE(), "registered <= list size");
+    }
+
     /// The effective phase never moves backwards; open ballots never enter Reveal.
     function invariant_phaseMonotonic() public view {
         assertFalse(h.phaseWentBackwards(), "phase went backwards");
         assertTrue(o.phaseOf(ids[0]) != Ostrakon.Phase.Reveal, "open ballot in Reveal");
         assertTrue(o.phaseOf(ids[1]) != Ostrakon.Phase.Reveal, "open ballot in Reveal");
+        assertTrue(o.phaseOf(ids[3]) != Ostrakon.Phase.Reveal, "open ballot in Reveal");
     }
 
     /// Finalization only ever happens after Ended, and a finalized election stays Ended.
     function invariant_finalizeOnlyWhenEnded() public view {
         assertFalse(h.finalizedBeforeEnded(), "finalized before Ended");
-        for (uint256 k = 0; k < 3; ++k) {
+        for (uint256 k = 0; k < 4; ++k) {
             Ostrakon.ElectionView memory v = o.getElection(ids[k]);
             if (v.finalized) assertEq(uint8(v.phase), uint8(Ostrakon.Phase.Ended));
         }

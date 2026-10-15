@@ -740,11 +740,16 @@ contract AccessControlTest is OstrakonBase {
     }
 
     function test_transferAdmin() public {
+        vm.prank(admin);
+        o.transferAdmin(id, alice); // step 1: nominate
+        assertEq(o.getElection(id).admin, admin, "nomination alone changes nothing");
+        assertEq(o.getElection(id).pendingAdmin, alice);
         vm.expectEmit(true, true, true, true);
         emit AdminTransferred(id, admin, alice);
-        vm.prank(admin);
-        o.transferAdmin(id, alice);
+        vm.prank(alice);
+        o.acceptAdmin(id); // step 2: accept
         assertEq(o.getElection(id).admin, alice);
+        assertEq(o.getElection(id).pendingAdmin, address(0));
         // old admin lost rights, new admin has them
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.NotAdmin.selector, id, admin));
