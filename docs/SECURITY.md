@@ -59,8 +59,8 @@ INFO:Slither:. analyzed (1 contracts with 102 detectors), 3 result(s) found
 
 | # | Detector | Location | Triage |
 |---|---|---|---|
-| S-1 | `timestamp` | `createElection`, `Ostrakon.sol:158`: `votingEnd <= block.timestamp` | **Accepted.** Validators can skew timestamps by seconds. A schedule end a few seconds in the future could be accepted or rejected near the boundary. The only effect is the creator retrying. No funds or tallies are affected. |
-| S-2 | `timestamp` | `_effectivePhase`, `Ostrakon.sol:375,378` | **Accepted, by design.** Timestamp windows are a requirement. A block producer can open or close a window a few seconds early or late. The README and How-it-works screen say schedules are accurate to roughly one block. Don't use schedules where seconds matter. |
+| S-1 | `timestamp` | `createElection`, `Ostrakon.sol:162`: `votingEnd <= block.timestamp` | **Accepted.** Validators can skew timestamps by seconds. A schedule end a few seconds in the future could be accepted or rejected near the boundary. The only effect is the creator retrying. No funds or tallies are affected. |
+| S-2 | `timestamp` | `_effectivePhase`, `Ostrakon.sol:400,404` | **Accepted, by design.** Timestamp windows are a requirement. A block producer can open or close a window a few seconds early or late. The README and How-it-works screen say schedules are accurate to roughly one block. Don't use schedules where seconds matter. |
 | S-3 | `cyclomatic-complexity` (13) | `createElection` | **Accepted.** The complexity is the input validation itself: name, count, per-candidate emptiness, length, duplicates, schedule. Each branch has its own test (`CreateValidationTest`, fuzz `testFuzz_nameLengths`). Coverage shows 100% of branches. |
 
 ### forge lint (`npm run lint:sol` runs `forge lint -D warnings`, so any warning fails)

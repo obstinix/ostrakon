@@ -323,3 +323,49 @@ The report's own stated limitations are accurate: no ballot secrecy, admin-depen
 - **C-08 / ballot secrecy:** not solved in the base design and documented as such. Commit–reveal is a stretch goal only.
 - **C-13 / admin controls eligibility (Sybil, self-registration):** inherent to the allowlist model, documented as a trust limitation. Real identity verification is out of scope.
 - **Identity binding** (report §8 "trustworthy identity-verification process"): out of scope, listed in future scope.
+
+---
+
+## 7. Resolution status in Ostrakon (verified)
+
+Evidence is in [VERIFICATION.md](VERIFICATION.md) unless noted.
+
+| Issue | Status | Evidence |
+|---|---|---|
+| A-01 tests never run | Resolved | 67 Foundry tests (including the 12 report scenarios), 8 Vitest, 15 Playwright; all green from a clean clone |
+| A-02 deployment file deleted | Resolved | Deployment goes to `web/public/deployment.json`, outside any tool's artifact folder; checked at runtime against code at the address |
+| A-03 fresh clone can't build | Resolved | Clean-clone `npm ci` → `npm run build` exit 0 |
+| A-04 fails under CI | Resolved | `npm run lint` uses `--max-warnings 0` and `forge lint -D warnings`; exit 0 |
+| A-05 three terminals, manual setup | Resolved | `npm run dev` |
+| A-06 admin account mismatch | Resolved | Per-election admin; seed prints roles; `npm run keys` |
+| A-07 dead references in index.html | Resolved | 0 failed requests, 0 console errors on load |
+| A-08 vulnerable/unused deps | Resolved | `npm audit --omit=dev`: 0 vulnerabilities |
+| A-09 dead hook | Resolved | Not recreated |
+| A-10 old compiler | Resolved | solc 0.8.30 |
+| C-01 no phases | Resolved | `PhaseTest` (14 tests), `invariant_phaseMonotonic` |
+| C-02 no winner | Resolved | `FinalizeTest`, fuzz `testFuzz_finalizeMatchesArgmax` |
+| C-03 no validation | Resolved | `CreateValidationTest` (10), fuzz `testFuzz_nameLengths` |
+| C-04 zero address | Resolved | `test_singleRejectsZero`, `test_batchSkipsZeroAndAlreadyRegistered` |
+| C-05 unbounded batch | Resolved | `MAX_BATCH = 200`, full batch costs 9.47M gas; UI chunks longer lists |
+| C-06 single owner | Resolved | Per-election admin plus `transferAdmin`; `AccessControlTest` |
+| C-07 owner-only list that's public anyway | Resolved | Public paginated `getVoters`; README says the list is public |
+| C-08 no ballot secrecy | **Not addressed by design** | Documented in README, How it works, SECURITY.md; commit–reveal is future scope |
+| C-09 N+1 reads | Resolved | `getTallies`, `getElections`, `getVoterStatuses` |
+| C-10 missing events | Resolved | Six events; event args checked with `vm.expectEmit` |
+| C-11 gas waste | Resolved | No zero writes or double checks; `.gas-snapshot` |
+| C-12 revert strings | Resolved | Custom errors plus NatSpec |
+| C-13 admin can self-register | **Not addressed by design** | Documented as a trust limitation |
+| F-01 no read-only mode | Resolved | E2E 1 (read-only), manual check |
+| F-02 double provider | Resolved | One `RuntimeProvider` and `WalletProvider` |
+| F-03 listener leak, no chain listener | Resolved | wagmi handles connector subscriptions; E2E 3 switches chain mid-session |
+| F-04 raw errors in DOM | Resolved | `decodeError` plus Vitest; E2E raw-error scan on every error-capable page |
+| F-05 unvalidated admin input | Resolved | `previewVoters` (checksum, dedupe, zero, already-registered); E2E 7 |
+| F-06 fixed-interval N+1 polling | Resolved | Event-driven invalidation; single-call tallies |
+| F-07 effect re-fetch loop | Resolved | Query keys by id; no selection copied into state |
+| F-08 no tx lifecycle | Resolved | `useTx` state machine; E2E 5 asserts "Confirmed in block N" |
+| F-09 vote buttons for everyone | Resolved | Vote action derived from chain; E2E 5–6 |
+| F-10 no wrong-chain or stale handling | Resolved | E2E 3, 13–15; manual chain-restart test |
+| F-11 connect on load | Resolved | Connect only on button press |
+| F-12 accessibility | Resolved | Lighthouse accessibility 100; keyboard-only vote; 360px test |
+| F-13 visual system | Resolved | DESIGN.md |
+| F-14 debug text in nav | Resolved | Network bar by design |

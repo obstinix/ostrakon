@@ -39,7 +39,7 @@ The audit screen reads all contract logs from the deploy block and decodes them 
 **Sign-In with Ethereum: not used.**
 There's no server session to authenticate. Every authorization decision is made by the contract from `msg.sender`, so SIWE would add a ceremony with no security benefit.
 
-**Motion: no library. About 150 lines of hooks on IntersectionObserver, `requestAnimationFrame` and one passive scroll listener (`web/src/components/motion.tsx`).**
+**Motion: no library. About 200 lines of hooks on IntersectionObserver, `requestAnimationFrame` and one passive scroll listener (`web/src/components/motion.tsx`).**
 - My first build used the `motion` package (Framer Motion's successor). Measuring the production bundle showed the motion packages were the largest dependency I controlled. Replacing the five primitives I actually used cut the main bundle from 253 kB to 202 kB gzipped, with identical behavior. That's before route splitting. The E2E suite passed both before and after.
 - Everything animates only `transform` and `opacity`. The scroll-linked rail reads `getBoundingClientRect` at most once per frame and writes a transform. `prefers-reduced-motion` switches every effect to a static render.
 - I rejected CSS scroll-driven animations because they still aren't consistent across all major browsers.
