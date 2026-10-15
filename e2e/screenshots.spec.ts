@@ -22,7 +22,7 @@ test("capture", async ({ page }) => {
 
   await page.goto("/");
   await connect(page);
-  await expect(page.locator(".ledger-item")).toHaveCount(5);
+  await expect(page.locator(".ledger-item")).toHaveCount(6);
   await page.locator(".ledger-item").nth(4).getByRole("button", { name: "On-chain record" }).click();
   await page.screenshot({ path: out("ledger"), fullPage: true });
 
@@ -44,9 +44,15 @@ test("capture", async ({ page }) => {
   await expect(page.getByTestId("result")).toBeVisible();
   await page.screenshot({ path: out("result") });
 
+  await page.goto("/e/6");
+  await connect(page); // account #3 has a sealed vote here
+  await expect(page.getByTestId("eligibility")).toContainText("Your vote is sealed");
+  await page.getByTestId("candidate-0").locator(".card-face").click();
+  await page.screenshot({ path: out("secret-ballot") });
+
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto("/");
-  await expect(page.locator(".ledger-item")).toHaveCount(5);
+  await expect(page.locator(".ledger-item")).toHaveCount(6);
   await page.screenshot({ path: out("mobile-ledger"), fullPage: true });
 });
 

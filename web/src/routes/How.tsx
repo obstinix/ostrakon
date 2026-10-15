@@ -36,6 +36,33 @@ export function HowPage() {
         means within a few seconds.
       </p>
 
+      <h2>Open and secret ballots</h2>
+      <p>
+        <strong>Open ballot:</strong> a vote is counted the moment it is cast, and the choice is public at once.
+      </p>
+      <p>
+        <strong>Secret ballot (commit–reveal):</strong> the election gets one extra phase, <em>Reveal</em>, between
+        Voting and Ended.
+      </p>
+      <ol>
+        <li>
+          During Voting you <em>seal</em> your vote: your browser picks a random secret, combines it with your choice,
+          and sends only a fingerprint (a hash) of the two. The chain records <em>that</em> you voted, not for whom.
+          Your browser keeps a receipt with the choice and secret, and offers it as a file.
+        </li>
+        <li>
+          During Reveal you send the choice and secret. The contract checks them against your fingerprint, then counts
+          the vote. From that moment your choice is public, just like an open ballot.
+        </li>
+        <li>A sealed vote that is never revealed is never counted.</li>
+      </ol>
+      <p>
+        What this buys: nobody, including the admin, can see running totals or individual choices while voting is
+        open, so early results can't sway later voters. What it doesn't: choices still become public at reveal, and
+        during Reveal, people who reveal late can see the partial count and choose not to reveal. If you lose the
+        receipt (cleared browser data, another device, no downloaded copy), your vote can't be counted.
+      </p>
+
       <h2>What you can trust</h2>
       <ul>
         <li>Only registered addresses can vote, and each one only once. The contract enforces this, not this website.</li>
@@ -49,9 +76,9 @@ export function HowPage() {
       <h2>Limits you should know</h2>
       <ul>
         <li>
-          <strong>Your ballot is public.</strong> A vote is a transaction whose data names the candidate. Anyone can
-          see which address voted for whom. Hiding this would need a different design, such as commit-reveal or
-          zero-knowledge proofs, which Ostrakon doesn't implement.
+          <strong>Your choice ends up public.</strong> In an open ballot it is public as soon as you vote; in a secret
+          ballot, as soon as you reveal. Anyone can then see which address chose whom. Keeping it hidden for good would
+          need zero-knowledge proofs or similar, which Ostrakon doesn't implement.
         </li>
         <li>
           <strong>Eligibility is the admin's word.</strong> The contract knows addresses, not people. The admin decides

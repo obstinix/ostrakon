@@ -7,6 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
 //  #3 Robotics Club Lead    Ended+final  winner index 1 (Meera Pillai)
 //  #4 Cultural Fest Theme   Ended+final  tie
 //  #5 Hostel Mess Committee Registration, scheduled to open in 10 min
+//  #6 Sports Captain       secret ballot, Voting; #2 #3 sealed, #4 #5 registered
 const ACC = [
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
@@ -110,7 +111,7 @@ test("read-only without a wallet: ledger, network bar, explanation", async ({ pa
   await expect(page.getByTestId("notice-no-wallet")).toBeVisible();
   await expect(page.getByTestId("block-number")).toHaveText(/#\d+/);
   await expect(page.getByTestId("role")).toHaveText("Read-only");
-  await expect(page.locator(".ledger-item")).toHaveCount(5);
+  await expect(page.locator(".ledger-item")).toHaveCount(6);
   await expect(page.locator(".ledger")).toContainText("Student Council 2026");
   await page.goto("/e/3");
   await expect(page.getByTestId("result")).toContainText("Meera Pillai");
@@ -219,7 +220,7 @@ test("admin: validate a pasted list, register, run the election to a result", as
   await page.getByRole("button", { name: "Finalize result" }).click();
   await expect(page.getByText("The result is final.")).toBeVisible({ timeout: 20_000 });
   await page.goto("/e/2");
-  await expect(page.getByTestId("result")).toContainText("No votes were cast");
+  await expect(page.getByTestId("result")).toContainText("No votes were counted");
   await assertNoRawErrors(page);
 });
 
@@ -233,15 +234,97 @@ test("non-admin cannot see admin controls", async ({ page }) => {
 });
 
 test("audit: verify-my-vote shows only what the chain proves", async ({ page }) => {
-  await asMock(page, 2); // voted in #1, #3, #4
+  await asMock(page, 2); // voted in #1, #3, #4; sealed in #6
   await page.goto("/audit");
   await connect(page);
   const verify = page.getByTestId("verify");
-  await expect(verify.locator(".receipt")).toHaveCount(3);
-  await expect(verify).toContainText("not secret");
+  await expect(verify.locator(".receipt")).toHaveCount(4);
+  await expect(verify.locator(".receipt").last()).toContainText("Sealed: choice hidden");
+  await expect(verify.locator(".receipt").last()).toContainText("hidden on chain");
+  await expect(verify).toContainText("shows the candidate publicly");
   await expect(page.locator("table.table tbody tr").first()).toBeVisible();
   await expect(page.locator("table.table")).toContainText("Voted");
   await assertNoRawErrors(page);
+});
+
+test("secret ballot: seal, keep the receipt, reveal in this browser or with a pasted receipt", async ({
+  page,
+  browser,
+}) => {
+  // Voter #4 seals a vote for Omkar Joshi (index 1). Tallies are hidden while voting is open.
+  await asMock(page, 4);
+  await page.goto("/e/6");
+  await connect(page);
+  await expect(page.getByTestId("eligibility")).toContainText("You can vote");
+  await expect(page.getByTestId("candidate-1").locator(".sealed")).toBeVisible();
+  await expect(page.getByTestId("count-line")).toContainText("2 sealed votes");
+  await page.getByTestId("candidate-1").locator(".card-face").click();
+  await page.getByRole("button", { name: "Seal vote for Omkar Joshi" }).click();
+  await expect(page.getByTestId("candidate-1").getByText("hidden until you reveal it")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm sealed vote" }).click();
+  await expect(page.getByTestId("tx-status").first()).toContainText(/Confirmed in block \d+/, { timeout: 20_000 });
+  await expect(page.getByTestId("eligibility")).toContainText("Your vote is sealed");
+  await expect(page.getByRole("button", { name: "Download a copy" })).toBeVisible();
+  await expect(page.getByTestId("count-line")).toContainText("3 sealed votes");
+  // The on-chain record shows a sealed vote with no choice.
+  await expect(page.locator(".block-VoteCommitted").last()).toContainText("choice hidden");
+
+  // Voter #5 seals on "another device" (separate browser context), voting for Neha Bhosale (index 2).
+  const other = await browser.newContext();
+  const p5 = await other.newPage();
+  await asMock(p5, 5);
+  await p5.goto("/e/6");
+  await connect(p5);
+  await p5.getByTestId("candidate-2").locator(".card-face").click();
+  await p5.getByRole("button", { name: "Seal vote for Neha Bhosale" }).click();
+  await p5.getByRole("button", { name: "Confirm sealed vote" }).click();
+  await expect(p5.getByTestId("eligibility")).toContainText("Your vote is sealed", { timeout: 20_000 });
+  const receipt5 = await p5.evaluate(
+    () => Object.entries(localStorage).find(([k]) => k.startsWith("ostrakon:receipt:"))?.[1] ?? "",
+  );
+  const receipt4 = await page.evaluate(
+    () => Object.entries(localStorage).find(([k]) => k.startsWith("ostrakon:receipt:"))?.[1] ?? "",
+  );
+  expect(JSON.parse(receipt5).candidateIndex).toBe(2);
+  await other.close();
+
+  // Admin #0 closes voting and opens Reveal (another session).
+  const adminCtx = await browser.newContext();
+  const adminPage = await adminCtx.newPage();
+  await asMock(adminPage, 0);
+  await adminPage.goto("/e/6/manage");
+  await connect(adminPage);
+  await adminPage.getByRole("button", { name: "Close voting, open reveal" }).click();
+  await expect(adminPage.locator(".phase-steps .now")).toHaveText("Reveal", { timeout: 20_000 });
+  await adminCtx.close();
+
+  // #4 reveals with the receipt this browser kept.
+  await page.reload();
+  await connect(page);
+  await expect(page.getByTestId("count-line")).toContainText("0 of 4 sealed votes revealed");
+  await page.getByRole("button", { name: "Reveal my vote for Omkar Joshi" }).click();
+  await expect(page.getByTestId("eligibility")).toContainText("Your vote is counted", { timeout: 20_000 });
+  await expect(page.getByTestId("candidate-1").locator(".count > .sr-only")).toHaveText("1");
+  await assertNoRawErrors(page);
+
+  // #5, on a fresh device with no stored receipt, first pastes the wrong receipt, then the right one.
+  const fresh = await browser.newContext();
+  const p5b = await fresh.newPage();
+  await asMock(p5b, 5);
+  await p5b.goto("/e/6");
+  await connect(p5b);
+  await expect(p5b.getByTestId("eligibility")).toContainText("No matching receipt in this browser");
+  const paste = p5b.getByTestId("eligibility").locator("textarea");
+  await paste.fill(receipt4);
+  await p5b.getByRole("button", { name: "Reveal with this receipt" }).click();
+  await expect(p5b.getByTestId("eligibility")).toContainText("different account, election or sealed vote");
+  await paste.fill(receipt5);
+  await p5b.getByRole("button", { name: "Reveal with this receipt" }).click();
+  await expect(p5b.getByTestId("eligibility")).toContainText("Your vote is counted", { timeout: 20_000 });
+  await expect(p5b.getByTestId("candidate-2").locator(".count > .sr-only")).toHaveText("1");
+  await expect(p5b.getByTestId("count-line")).toContainText("2 of 4 sealed votes revealed");
+  await assertNoRawErrors(p5b);
+  await fresh.close();
 });
 
 test("anyone can create an election and lands on it", async ({ page }) => {
@@ -254,9 +337,24 @@ test("anyone can create an election and lands on it", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("Candidates 1 and 2 have the same name.");
   await page.getByLabel(/Candidates, one per line/).fill("Alpha\nBeta");
   await page.getByRole("button", { name: "Create election" }).click();
-  await expect(page).toHaveURL(/\/e\/6$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/e\/7$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("E2E Committee");
   await expect(page.getByRole("link", { name: "Manage election" })).toBeVisible();
+
+  // Secret ballot: a scheduled reveal close without a voting close is caught before sending.
+  await page.goto("/new");
+  await connect(page);
+  await page.getByLabel("Election name").fill("E2E Secret");
+  await page.getByLabel(/Candidates, one per line/).fill("Alpha\nBeta");
+  await page.getByLabel(/Secret ballot \(commit–reveal\)/).check();
+  await page.getByLabel("Reveal closes").fill("2099-01-01T10:00");
+  await page.getByRole("button", { name: "Create election" }).click();
+  await expect(page.getByRole("alert")).toContainText("needs a scheduled voting close too");
+  await page.getByLabel("Reveal closes").fill("");
+  await page.getByRole("button", { name: "Create election" }).click();
+  await expect(page).toHaveURL(/\/e\/8$/, { timeout: 20_000 });
+  await expect(page.locator(".el-meta")).toContainText("Secret ballot");
+  await expect(page.locator(".phase-notches i")).toHaveCount(4);
 });
 
 test("360px: no horizontal scroll, ledger rows stack", async ({ page }) => {
