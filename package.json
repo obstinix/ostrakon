@@ -1,0 +1,36 @@
+{
+  "name": "ostrakon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Blockchain e-voting DApp: per-election admins, forward-only phases, verifiable on-chain audit trail.",
+  "license": "BSL-1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "chain:build": "tsx scripts/forge.ts build && tsx scripts/gen-abi.ts",
+    "test": "npm run test:contracts && npm run test:web",
+    "test:contracts": "tsx scripts/forge.ts test",
+    "test:web": "vitest run --root web",
+    "test:e2e": "playwright test",
+    "lifecycle": "tsx scripts/lifecycle.ts",
+    "coverage": "tsx scripts/forge.ts coverage --report summary --report lcov --no-match-coverage \"contracts/(test|script)\"",
+    "gas": "tsx scripts/forge.ts snapshot --match-path \"contracts/test/Ostrakon.t.sol\"",
+    "gas:report": "tsx scripts/forge.ts test --gas-report --match-path \"contracts/test/Ostrakon.t.sol\"",
+    "lint": "npm run lint:sol && npm run lint:web",
+    "lint:sol": "tsx scripts/forge.ts fmt --check",
+    "lint:web": "eslint --max-warnings 0 web scripts e2e",
+    "format": "tsx scripts/forge.ts fmt",
+    "typecheck": "npm run chain:build && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "build": "npm run chain:build && vite build --config web/vite.config.ts",
+    "preview": "vite preview --config web/vite.config.ts"
+  },
+  "devDependencies": {
+    "forge-std": "github:foundry-rs/forge-std#v1.17.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "viem": "^2.57.7"
+  }
+}

@@ -1,0 +1,40 @@
+[profile.default]
+src = "contracts/src"
+test = "contracts/test"
+script = "contracts/script"
+out = "contracts/out"
+cache_path = "contracts/cache"
+libs = ["node_modules"]
+remappings = ["forge-std/=node_modules/forge-std/src/"]
+solc_version = "0.8.30"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 10_000
+bytecode_hash = "none"
+extra_output = ["storageLayout"]
+
+[fuzz]
+runs = 1024
+seed = "0x05742a4b"
+
+[invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+
+[profile.ci.fuzz]
+runs = 10_000
+
+[profile.ci.invariant]
+runs = 1024
+depth = 128
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+number_underscore = "thousands"
+
+[lint]
+exclude_lints = ["mixed-case-variable"]
