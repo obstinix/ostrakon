@@ -29,3 +29,6 @@ Thumbs.db
 *.log
 .venv/
 .gas-snapshot.tmp
+web/src/generated/
+web/public/deployment.json
+dist-e2e/

@@ -20,17 +20,41 @@
     "gas": "tsx scripts/forge.ts snapshot --match-path \"contracts/test/Ostrakon.t.sol\"",
     "gas:report": "tsx scripts/forge.ts test --gas-report --match-path \"contracts/test/Ostrakon.t.sol\"",
     "lint": "npm run lint:sol && npm run lint:web",
-    "lint:sol": "tsx scripts/forge.ts fmt --check",
+    "lint:sol": "tsx scripts/forge.ts fmt --check && tsx scripts/forge.ts lint -D warnings",
     "lint:web": "eslint --max-warnings 0 web scripts e2e",
     "format": "tsx scripts/forge.ts fmt",
     "typecheck": "npm run chain:build && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "npm run chain:build && vite build --config web/vite.config.ts",
-    "preview": "vite preview --config web/vite.config.ts"
+    "preview": "vite preview --config web/vite.config.ts",
+    "keys": "tsx scripts/keys.ts"
   },
   "devDependencies": {
-    "forge-std": "github:foundry-rs/forge-std#v1.17.0",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "forge-std": "https://github.com/foundry-rs/forge-std/archive/refs/tags/v1.17.0.tar.gz",
+    "globals": "^17.13.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "viem": "^2.57.7"
+    "typescript-eslint": "^8.71.2",
+    "viem": "^2.57.7",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/public-sans": "^5.3.0",
+    "@tanstack/react-query": "^5.104.2",
+    "motion": "^14.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.4.0",
+    "wagmi": "^3.7.7"
   }
 }
