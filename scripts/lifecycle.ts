@@ -180,6 +180,20 @@ try {
   const al3 = await reads.getElectionDetail(pc, C, 3n);
   ok("voterCount counts only claimed members (2 of 500)", al3.voterCount === 2 && al3.tallies.join() === "1,1");
 
+  console.log("▸ allowlist + secret ballot: seal with a proof, then reveal");
+  await send(C, admin, "createSecretElection", ["Allowlist Secret", ["Ada", "Grace"], 0n, 0n, 0n]);
+  await send(C, admin, "setAllowlist", [4n, built.root, ""]);
+  await send(C, admin, "advancePhase", [4n]);
+  const salt4 = `0x${"44".repeat(32)}` as const;
+  const c4 = reads.commitmentHash(Number(d.chainId), C, 4n, account(4).address, 0n, salt4);
+  await send(C, 4, "commitVoteWithProof", [4n, c4, proofFor(tree, account(4).address)!]);
+  const st4 = await reads.getVoterStatus(pc, C, 4n, account(4).address);
+  ok("#4 registered and sealed in one transaction", st4.registered && st4.voted && !st4.revealed);
+  await send(C, admin, "advancePhase", [4n]);
+  await send(C, 4, "revealVote", [4n, 0n, salt4]);
+  const e4 = await reads.getElectionDetail(pc, C, 4n);
+  ok("revealed vote counted for Ada", e4.tallies.join() === "1,0" && e4.committed === 1);
+
   // ---------------------------------------------------------------- two-step admin
   console.log("▸ two-step admin hand-over");
   await send(C, admin, "transferAdmin", [3n, account(5).address]);

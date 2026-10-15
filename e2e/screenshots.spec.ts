@@ -50,6 +50,15 @@ test("capture", async ({ page }) => {
   await page.getByTestId("candidate-0").locator(".card-face").click();
   await page.screenshot({ path: out("secret-ballot") });
 
+  await page.addInitScript(() => {
+    window.__OSTRAKON_E2E__ = { account: 6 }; // on the #7 allowlist
+  });
+  await page.goto("/e/7");
+  await connect(page);
+  await page.getByTestId("eligibility").getByRole("button", { name: "Load the list from the admin's link" }).click();
+  await expect(page.getByTestId("eligibility")).toContainText("You can vote (allowlist)");
+  await page.screenshot({ path: out("allowlist") });
+
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto("/");
   await expect(page.locator(".ledger-item")).toHaveCount(7);
