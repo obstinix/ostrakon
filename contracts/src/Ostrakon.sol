@@ -145,16 +145,20 @@ contract Ostrakon {
         bytes32[] memory hashes = new bytes32[](n);
         for (uint256 i = 0; i < n; ++i) {
             uint256 len = bytes(candidates[i]).length;
+            // forge-lint: disable-next-line(require-revert-in-loop) fail fast on invalid input; n <= 32
             if (len == 0) revert EmptyCandidateName(i);
+            // forge-lint: disable-next-line(require-revert-in-loop) fail fast on invalid input; n <= 32
             if (len > MAX_CANDIDATE_NAME_BYTES) revert CandidateNameTooLong(i, len);
             bytes32 h = keccak256(bytes(candidates[i]));
             for (uint256 j = 0; j < i; ++j) {
+                // forge-lint: disable-next-line(require-revert-in-loop) fail fast on invalid input; n <= 32
                 if (hashes[j] == h) revert DuplicateCandidate(j, i);
             }
             hashes[i] = h;
         }
 
         if (votingEnd != 0) {
+            // forge-lint: disable-next-line(block-timestamp) schedules are coarse; see SECURITY.md S-1
             if (votingEnd <= block.timestamp) revert InvalidSchedule();
             if (votingStart != 0 && votingStart >= votingEnd) revert InvalidSchedule();
         }
@@ -392,9 +396,11 @@ contract Ostrakon {
         Phase p = e.storedPhase;
         if (p == Phase.Ended) return p;
         uint64 end = e.votingEnd;
+        // forge-lint: disable-next-line(block-timestamp) timestamp windows are a requirement; see SECURITY.md S-2
         if (end != 0 && block.timestamp >= end) return Phase.Ended;
         if (p == Phase.Voting) return p;
         uint64 start = e.votingStart;
+        // forge-lint: disable-next-line(block-timestamp) timestamp windows are a requirement; see SECURITY.md S-2
         if (start != 0 && block.timestamp >= start) return Phase.Voting;
         return p;
     }

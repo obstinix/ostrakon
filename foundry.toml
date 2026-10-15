@@ -38,3 +38,4 @@ number_underscore = "thousands"
 
 [lint]
 exclude_lints = ["mixed-case-variable"]
+lint_on_build = false

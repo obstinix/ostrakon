@@ -379,7 +379,7 @@ contract PhaseTest is OstrakonBase {
     // ---- timestamp windows
 
     function test_scheduledStartOpensVotingAutomatically() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(t + 100, t + 200);
         _reg(id, alice);
         assertEq(uint8(_phase(id)), 0);
@@ -394,7 +394,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_scheduledStartBlocksEarlyManualAdvance() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(t + 100, 0);
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.ScheduleNotReached.selector, t + 100));
@@ -402,7 +402,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_scheduledEndBlocksEarlyManualEnd() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(0, t + 500);
         _advance(id); // manual open allowed (no start set)
         vm.prank(admin);
@@ -411,7 +411,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_scheduledEndClosesVoting() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(t + 100, t + 200);
         _reg(id, alice);
         _reg(id, bob);
@@ -433,7 +433,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_registrationClosesAtScheduledStart() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(t + 100, 0);
         vm.warp(t + 100);
         vm.prank(admin);
@@ -444,7 +444,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_jumpFromRegistrationToEndedBySchedule() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(0, t + 50);
         vm.warp(t + 60);
         assertEq(uint8(_phase(id)), 2);
@@ -460,7 +460,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_advanceAfterScheduleJustRecords() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(t + 10, t + 20);
         vm.warp(t + 10);
         // Lazy sync records Voting, then advance tries Voting->Ended but votingEnd not reached.
@@ -478,7 +478,7 @@ contract PhaseTest is OstrakonBase {
     }
 
     function test_manualThenScheduleNeverGoesBack() public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(0, t + 100);
         _advance(id);
         assertEq(uint8(_phase(id)), 1);
@@ -882,7 +882,7 @@ contract VoteFuzzTest is OstrakonBase {
     }
 
     function testFuzz_scheduleWindow(uint32 startOff, uint32 len, uint32 at) public {
-        uint64 t = uint64(block.timestamp);
+        uint64 t = uint64(vm.getBlockTimestamp());
         uint64 start = t + 1 + uint64(startOff);
         uint64 end = start + 1 + uint64(len);
         uint256 id = _createScheduled(start, end);
