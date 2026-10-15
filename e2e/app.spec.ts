@@ -611,3 +611,21 @@ test("EIP-6963: several wallets are offered by name; the chosen one connects", a
   await expect(page.getByLabel("Network status")).toContainText("0x14dC");
   await assertNoRawErrors(page);
 });
+
+test("touch: tap a candidate card open and vote, no hover needed", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.use.hasTouch, "touch devices only");
+  await asMock(page, 5); // registered in #1, hasn't voted
+  await page.goto("/e/1");
+  await page.getByRole("button", { name: "Connect wallet" }).tap();
+  await expect(page.getByTestId("eligibility")).toContainText("You can vote");
+  const face = page.getByTestId("candidate-0").locator(".card-face");
+  await face.tap();
+  await expect(face).toHaveAttribute("aria-expanded", "true");
+  // Everything the card reveals on desktop hover/focus is in the tapped-open panel.
+  await expect(page.getByTestId("candidate-0").locator(".card-panel")).toContainText("Share");
+  await page.getByRole("button", { name: "Vote for Ananya Kulkarni" }).tap();
+  await page.getByRole("button", { name: "Confirm vote" }).tap();
+  await expect(page.getByTestId("eligibility")).toContainText("You voted", { timeout: 20_000 });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
