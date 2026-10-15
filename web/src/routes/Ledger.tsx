@@ -77,7 +77,7 @@ export function LedgerPage() {
       {list.length > 0 && (
         <>
           <div className="ledger-cols" aria-hidden="true">
-            <span>№</span>
+            <span>No.</span>
             <span>Election</span>
             <span>Phase</span>
             <span>Votes</span>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useAccount, useAuditLog, useElections, useMyVotes } from "../chain/hooks";
+import { useAccount, useAuditLog, useElection, useElections, useMyVotes } from "../chain/hooks";
 import { PHASES, type AuditEntry } from "../chain/reads";
 import { useRuntime } from "../chain/runtime";
 import { Hex } from "../components/Copy";
@@ -76,7 +76,7 @@ export function AuditPage() {
                 <option value="all">All</option>
                 {(elections.data ?? []).map((e) => (
                   <option key={e.id.toString()} value={e.id.toString()}>
-                    № {e.id.toString()} · {e.name}
+                    #{e.id.toString()} · {e.name}
                   </option>
                 ))}
               </select>
@@ -117,7 +117,7 @@ export function AuditPage() {
                   <span className={`ev ev-${r.eventName}`}>{r.eventName}</span>
                 </td>
                 <td data-label="Election" className="mono">
-                  <Link to={`/e/${r.electionId.toString()}`}>№ {r.electionId.toString()}</Link>
+                  <Link to={`/e/${r.electionId.toString()}`}>#{r.electionId.toString()}</Link>
                 </td>
                 <td data-label="Details">
                   <Args ev={r} />
@@ -163,7 +163,7 @@ function VerifyMyVote() {
                 <li key={v.key} className="receipt">
                   <p className="receipt-title">
                     <Link to={`/e/${v.electionId.toString()}`}>
-                      № {v.electionId.toString()} {e?.name ?? ""}
+                      #{v.electionId.toString()} {e?.name ?? ""}
                     </Link>
                   </p>
                   <dl className="kv">
@@ -178,8 +178,10 @@ function VerifyMyVote() {
                       </dd>
                     </div>
                     <div>
-                      <dt>Candidate index (public)</dt>
-                      <dd className="mono">{String(v.args.candidateIndex)}</dd>
+                      <dt>Candidate (public)</dt>
+                      <dd>
+                        <CandidateName electionId={v.electionId} index={Number(v.args.candidateIndex)} />
+                      </dd>
                     </div>
                   </dl>
                 </li>
@@ -189,5 +191,14 @@ function VerifyMyVote() {
         </>
       )}
     </section>
+  );
+}
+
+function CandidateName({ electionId, index }: { electionId: bigint; index: number }) {
+  const e = useElection(electionId);
+  return (
+    <>
+      <span className="mono">#{index}</span> {e.data?.candidates[index] ?? ""}
+    </>
   );
 }

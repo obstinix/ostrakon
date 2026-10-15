@@ -30,7 +30,7 @@ export function ElectionPage() {
   return (
     <article className="page election" aria-labelledby="el-title">
       <header className="page-head">
-        <p className="eyebrow">Election № {e.id.toString()}</p>
+        <p className="eyebrow">Election No. {e.id.toString()}</p>
         <h1 id="el-title">{e.name}</h1>
         <div className="el-meta">
           <PhaseMark phase={e.phase} index={e.phaseIndex} finalized={e.finalized} />

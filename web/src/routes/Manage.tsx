@@ -34,7 +34,7 @@ export function ManagePage() {
   if (!sameAddr(e.admin, account)) {
     return (
       <section className="page narrow" aria-labelledby="m-title">
-        <p className="eyebrow">Election № {e.id.toString()}</p>
+        <p className="eyebrow">Election No. {e.id.toString()}</p>
         <h1 id="m-title">Admin only</h1>
         <p>
           Only this election's admin can manage it. The admin is <Hex value={e.admin} label="admin address" />.
@@ -49,7 +49,7 @@ export function ManagePage() {
     <section className="page" aria-labelledby="m-title">
       <header className="page-head">
         <p className="eyebrow">
-          Manage · <Link to={`/e/${e.id.toString()}`}>Election № {e.id.toString()}</Link>
+          Manage · <Link to={`/e/${e.id.toString()}`}>Election No. {e.id.toString()}</Link>
         </p>
         <h1 id="m-title">{e.name}</h1>
         <div className="el-meta">
