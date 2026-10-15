@@ -407,7 +407,7 @@ test("360px: no horizontal scroll, ledger rows stack", async ({ page }) => {
   await page.addInitScript(() => {
     window.__OSTRAKON_E2E__ = { mock: false };
   });
-  for (const path of ["/", "/e/1", "/audit", "/how", "/new"]) {
+  for (const path of ["/", "/e/1", "/e/6", "/e/7", "/audit", "/how", "/new"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

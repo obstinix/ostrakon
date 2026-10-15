@@ -1,3 +1,4 @@
+import { zeroHash } from "viem";
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useAccount, useAuditLog, useElections, useMyStatuses } from "../chain/hooks";
@@ -153,7 +154,9 @@ function LedgerRow({ e, status, isAdmin, connected, created }: {
             </span>
           ))
         ) : (
-          <span className="muted small">{connected ? "Not on list" : "-"}</span>
+          <span className="muted small">
+            {!connected ? "-" : e.allowlistRoot !== zeroHash ? "Check allowlist" : "Not on list"}
+          </span>
         )}
       </span>
       <span className="row-actions">
@@ -182,6 +185,10 @@ function LedgerRow({ e, status, isAdmin, connected, created }: {
             <dd>
               <Hex value={e.admin} label="admin address" />
             </dd>
+          </div>
+          <div>
+            <dt>Eligibility</dt>
+            <dd>{e.allowlistRoot !== zeroHash ? "Allowlist (Merkle root) + direct registration" : "Direct registration"}</dd>
           </div>
           <div>
             <dt>Voting window</dt>

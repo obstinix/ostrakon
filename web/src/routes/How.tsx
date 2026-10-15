@@ -36,6 +36,26 @@ export function HowPage() {
         means within a few seconds.
       </p>
 
+      <h2>Who can vote</h2>
+      <p>
+        The admin decides, in one or both of two ways, during Registration only:
+      </p>
+      <ul>
+        <li>
+          <strong>Direct registration:</strong> the admin adds addresses on chain, up to 200 per transaction.
+        </li>
+        <li>
+          <strong>Allowlist:</strong> for large electorates the admin publishes one fingerprint (a Merkle root) of the
+          whole list, and shares the list itself as a file. You load that file here; your browser checks that it matches
+          the fingerprint and builds a short proof that your address is on it. Your vote then registers you and counts in
+          one transaction. The fingerprint is frozen when voting opens, so the list can't change after results appear.
+        </li>
+      </ul>
+      <p>
+        Admins hand an election over in two steps: they nominate an address, and only that address can accept. Until it
+        does, nothing changes, so a mistyped address can't take or strand an election.
+      </p>
+
       <h2>Open and secret ballots</h2>
       <p>
         <strong>Open ballot:</strong> a vote is counted the moment it is cast, and the choice is public at once.
@@ -59,8 +79,14 @@ export function HowPage() {
       <p>
         What this buys: nobody, including the admin, can see running totals or individual choices while voting is
         open, so early results can't sway later voters. What it doesn't: choices still become public at reveal, and
-        during Reveal, people who reveal late can see the partial count and choose not to reveal. If you lose the
-        receipt (cleared browser data, another device, no downloaded copy), your vote can't be counted.
+        during Reveal, people who reveal late can see the partial count and choose not to reveal.
+      </p>
+      <p>
+        <strong>Recovering a lost receipt.</strong> When you seal a vote, your wallet signs a fixed message and that
+        signature becomes your secret. Signing the same message again later gives the same secret, so on any device
+        "Recover with my wallet" rebuilds the receipt. Because of this, only sign that message on Ostrakon: anyone with
+        the signature could work out your choice before you reveal it (they still couldn't change it). If you decline
+        to sign, a random secret is used instead and only the receipt file can recover it.
       </p>
 
       <h2>What you can trust</h2>
