@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSL-1.0
 pragma solidity ^0.8.24;
 
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
 /// @title Ostrakon
 /// @notice Multi-election registry with per-election admins, forward-only phases, an address
 ///         allowlist and on-chain tallies. Two ballot modes:
@@ -23,7 +25,8 @@ contract Ostrakon {
 
     /// @dev Slot 0: admin(20) + votingStart(8) + storedPhase(1) + finalized(1) + tie(1) + winner(1).
     ///      Slot 1: votingEnd(8) + createdBlock(8) + totalVotes(8) + revealEnd(8).
-    ///      Slot 2: secret(1) + committed(8).
+    ///      Slot 2: secret(1) + committed(8) + pendingAdmin(20).
+    ///      Slot 3: allowlistRoot.
     struct Election {
         address admin;
         uint64 votingStart;
@@ -37,6 +40,9 @@ contract Ostrakon {
         uint64 revealEnd;
         bool secret;
         uint64 committed;
+        address pendingAdmin;
+        bytes32 allowlistRoot;
+        string allowlistUri;
         string name;
         string[] candidates;
         uint256[] tallies;
@@ -66,6 +72,8 @@ contract Ostrakon {
         bool secret;
         uint64 revealEnd;
         uint256 committed;
+        address pendingAdmin;
+        bytes32 allowlistRoot;
     }
 
     // -------------------------------------------------------------- constants
@@ -79,6 +87,8 @@ contract Ostrakon {
     uint256 public constant MAX_BATCH = 200;
     /// @notice Maximum page size for paginated views.
     uint256 public constant MAX_PAGE = 100;
+    /// @notice Maximum length of an allowlist URI (where the admin publishes the Merkle tree).
+    uint256 public constant MAX_URI_BYTES = 256;
 
     // ---------------------------------------------------------------- storage
 
@@ -104,7 +114,13 @@ contract Ostrakon {
     /// @notice Secret ballot: a voter's sealed commitment, recorded during Voting.
     event VoteCommitted(uint256 indexed electionId, address indexed voter, bytes32 commitment);
     event Finalized(uint256 indexed electionId, bool tie, uint256 winner, uint256 winningVotes, uint256 totalVotes);
+    /// @notice Step 1 of 2: the admin nominated `pendingAdmin`, who must call `acceptAdmin`.
+    ///         `pendingAdmin == address(0)` means a pending nomination was cancelled.
+    event AdminTransferStarted(uint256 indexed electionId, address indexed admin, address indexed pendingAdmin);
+    /// @notice Step 2 of 2: the nominee accepted and is now the admin.
     event AdminTransferred(uint256 indexed electionId, address indexed previousAdmin, address indexed newAdmin);
+    /// @notice The admin published (or replaced, or cleared with 0) the Merkle root of eligible addresses.
+    event AllowlistSet(uint256 indexed electionId, bytes32 root, string uri);
 
     // ----------------------------------------------------------------- errors
 
@@ -134,6 +150,11 @@ contract Ostrakon {
     error NothingToReveal(address voter);
     error AlreadyRevealed(address voter);
     error CommitmentMismatch(address voter);
+    error NotPendingAdmin(uint256 electionId, address caller);
+    error NoPendingAdmin(uint256 electionId);
+    error NoAllowlist(uint256 electionId);
+    error NotOnAllowlist(address voter);
+    error UriTooLong(uint256 length);
 
     // -------------------------------------------------------------- modifiers
 
@@ -238,13 +259,57 @@ contract Ostrakon {
         }
     }
 
-    /// @notice Hand the admin role for one election to another address. Admin only.
+    /// @notice Step 1 of a two-step admin hand-over: nominate `newAdmin`. Admin only, any phase.
+    ///         The current admin keeps full control until the nominee calls `acceptAdmin`, so a
+    ///         mistyped address can never take (or lose) the election. Nominating again replaces
+    ///         the previous nominee.
     function transferAdmin(uint256 electionId, address newAdmin) external exists(electionId) onlyAdmin(electionId) {
         if (newAdmin == address(0)) revert ZeroAddress();
+        _elections[electionId].pendingAdmin = newAdmin;
+        emit AdminTransferStarted(electionId, msg.sender, newAdmin);
+    }
+
+    /// @notice Withdraw a pending nomination. Admin only.
+    function cancelAdminTransfer(uint256 electionId) external exists(electionId) onlyAdmin(electionId) {
         Election storage e = _elections[electionId];
+        if (e.pendingAdmin == address(0)) revert NoPendingAdmin(electionId);
+        e.pendingAdmin = address(0);
+        emit AdminTransferStarted(electionId, msg.sender, address(0));
+    }
+
+    /// @notice Step 2: the nominated address accepts and becomes the admin.
+    function acceptAdmin(uint256 electionId) external exists(electionId) {
+        Election storage e = _elections[electionId];
+        if (e.pendingAdmin == address(0) || e.pendingAdmin != msg.sender) {
+            revert NotPendingAdmin(electionId, msg.sender);
+        }
         address prev = e.admin;
-        e.admin = newAdmin;
-        emit AdminTransferred(electionId, prev, newAdmin);
+        e.admin = msg.sender;
+        e.pendingAdmin = address(0);
+        emit AdminTransferred(electionId, prev, msg.sender);
+    }
+
+    /// @notice Publish the Merkle root of eligible addresses, for electorates too large to register
+    ///         one by one. Admin only, Registration phase only, so the list is frozen once voting
+    ///         opens. Listed voters then register themselves with a proof (`registerWithProof`, or
+    ///         in the same transaction as their vote). Setting it again replaces it; 0 removes it.
+    ///         Explicit registration (`registerVoter[s]`) keeps working alongside it.
+    /// @param root Root of an OpenZeppelin StandardMerkleTree over `["address"]` leaves, i.e. leaf =
+    ///             keccak256(bytes.concat(keccak256(abi.encode(voter)))).
+    /// @param uri  Where the admin publishes the full tree so voters can derive their proof
+    ///             (at most 256 bytes; informational, not verified on chain).
+    function setAllowlist(uint256 electionId, bytes32 root, string calldata uri)
+        external
+        exists(electionId)
+        onlyAdmin(electionId)
+    {
+        Election storage e = _elections[electionId];
+        _requirePhase(electionId, e, Phase.Registration);
+        uint256 len = bytes(uri).length;
+        if (len > MAX_URI_BYTES) revert UriTooLong(len);
+        e.allowlistRoot = root;
+        e.allowlistUri = uri;
+        emit AllowlistSet(electionId, root, uri);
     }
 
     // ------------------------------------------------------ public functions
@@ -253,7 +318,48 @@ contract Ostrakon {
     ///         election must be in the Voting phase (manually or by schedule).
     /// @dev No external calls. Not secret: `candidateIndex` is public in calldata and the event.
     function vote(uint256 electionId, uint256 candidateIndex) external exists(electionId) {
+        _vote(electionId, _elections[electionId], candidateIndex);
+    }
+
+    /// @notice Register yourself from the election's Merkle allowlist. Registration or Voting phase,
+    ///         so listed voters can claim their place up to (and in the same step as) voting.
+    function registerWithProof(uint256 electionId, bytes32[] calldata proof) external exists(electionId) {
         Election storage e = _elections[electionId];
+        Phase p = _syncPhase(electionId, e);
+        if (p != Phase.Registration && p != Phase.Voting) revert WrongPhase(electionId, Phase.Voting, p);
+        if (e.registered[msg.sender]) revert AlreadyRegistered(msg.sender);
+        _registerByProof(electionId, e, proof);
+    }
+
+    /// @notice Open ballot: register from the allowlist (if not yet registered) and vote, in one transaction.
+    function voteWithProof(uint256 electionId, uint256 candidateIndex, bytes32[] calldata proof)
+        external
+        exists(electionId)
+    {
+        Election storage e = _elections[electionId];
+        if (!e.registered[msg.sender]) {
+            if (e.secret) revert SecretBallot(electionId);
+            _requirePhase(electionId, e, Phase.Voting);
+            _registerByProof(electionId, e, proof);
+        }
+        _vote(electionId, e, candidateIndex);
+    }
+
+    /// @notice Secret ballot: register from the allowlist (if not yet registered) and seal a vote, in one transaction.
+    function commitVoteWithProof(uint256 electionId, bytes32 commitment, bytes32[] calldata proof)
+        external
+        exists(electionId)
+    {
+        Election storage e = _elections[electionId];
+        if (!e.registered[msg.sender]) {
+            if (!e.secret) revert NotSecretBallot(electionId);
+            _requirePhase(electionId, e, Phase.Voting);
+            _registerByProof(electionId, e, proof);
+        }
+        _commit(electionId, e, commitment);
+    }
+
+    function _vote(uint256 electionId, Election storage e, uint256 candidateIndex) private {
         if (e.secret) revert SecretBallot(electionId);
         _requirePhase(electionId, e, Phase.Voting);
         if (!e.registered[msg.sender]) revert NotRegistered(msg.sender);
@@ -267,6 +373,7 @@ contract Ostrakon {
             e.tallies[candidateIndex] += 1;
             e.totalVotes += 1;
         }
+        // forge-lint: disable-next-line(reentrancy-events) false positive: MerkleProof is an inlined internal library; the bytecode has no CALL-family opcodes (see SECURITY.md)
         emit Voted(electionId, msg.sender, candidateIndex);
     }
 
@@ -275,7 +382,10 @@ contract Ostrakon {
     ///                   candidateIndex, salt))` with a random 32-byte `salt`. Compute it locally:
     ///                   asking a node to compute it would disclose the choice to that node.
     function commitVote(uint256 electionId, bytes32 commitment) external exists(electionId) {
-        Election storage e = _elections[electionId];
+        _commit(electionId, _elections[electionId], commitment);
+    }
+
+    function _commit(uint256 electionId, Election storage e, bytes32 commitment) private {
         if (!e.secret) revert NotSecretBallot(electionId);
         _requirePhase(electionId, e, Phase.Voting);
         if (!e.registered[msg.sender]) revert NotRegistered(msg.sender);
@@ -287,6 +397,7 @@ contract Ostrakon {
         unchecked {
             e.committed += 1; // bounded by voter count
         }
+        // forge-lint: disable-next-line(reentrancy-events) false positive: MerkleProof is an inlined internal library; the bytecode has no CALL-family opcodes (see SECURITY.md)
         emit VoteCommitted(electionId, msg.sender, commitment);
     }
 
@@ -312,6 +423,7 @@ contract Ostrakon {
             e.tallies[candidateIndex] += 1;
             e.totalVotes += 1;
         }
+        // forge-lint: disable-next-line(reentrancy-events) false positive: MerkleProof is an inlined internal library; the bytecode has no CALL-family opcodes (see SECURITY.md)
         emit Voted(electionId, msg.sender, candidateIndex);
     }
 
@@ -426,7 +538,18 @@ contract Ostrakon {
         return _elections[electionId].commitments[voter];
     }
 
-    /// @notice Number of registered voters.
+    /// @notice The election's Merkle allowlist root (0 if none) and where its tree is published.
+    function getAllowlist(uint256 electionId)
+        external
+        view
+        exists(electionId)
+        returns (bytes32 root, string memory uri)
+    {
+        Election storage e = _elections[electionId];
+        return (e.allowlistRoot, e.allowlistUri);
+    }
+
+    /// @notice Number of registered voters (explicitly registered plus allowlist members who have claimed).
     function voterCount(uint256 electionId) external view exists(electionId) returns (uint256) {
         return _elections[electionId].voters.length;
     }
@@ -506,9 +629,19 @@ contract Ostrakon {
         emit ElectionCreated(electionId, msg.sender, name, candidates, votingStart, votingEnd, secret, revealEnd);
     }
 
+    /// @dev Registers msg.sender if `proof` shows it is a leaf of the allowlist root.
+    function _registerByProof(uint256 electionId, Election storage e, bytes32[] calldata proof) private {
+        bytes32 root = e.allowlistRoot;
+        if (root == bytes32(0)) revert NoAllowlist(electionId);
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(msg.sender))));
+        if (!MerkleProof.verifyCalldata(proof, root, leaf)) revert NotOnAllowlist(msg.sender);
+        _register(electionId, e, msg.sender);
+    }
+
     function _register(uint256 electionId, Election storage e, address voter) private {
         e.registered[voter] = true;
         e.voters.push(voter);
+        // forge-lint: disable-next-line(reentrancy-events) false positive: MerkleProof is an inlined internal library; the bytecode has no CALL-family opcodes (see SECURITY.md)
         emit VoterRegistered(electionId, voter);
     }
 
@@ -543,6 +676,7 @@ contract Ostrakon {
     function _setPhase(uint256 electionId, Election storage e, Phase to, bool byTimestamp) private {
         Phase from = e.storedPhase;
         e.storedPhase = to;
+        // forge-lint: disable-next-line(reentrancy-events) false positive: MerkleProof is an inlined internal library; the bytecode has no CALL-family opcodes (see SECURITY.md)
         emit PhaseChanged(electionId, from, to, byTimestamp);
     }
 
@@ -564,5 +698,7 @@ contract Ostrakon {
         v.secret = e.secret;
         v.revealEnd = e.revealEnd;
         v.committed = e.committed;
+        v.pendingAdmin = e.pendingAdmin;
+        v.allowlistRoot = e.allowlistRoot;
     }
 }

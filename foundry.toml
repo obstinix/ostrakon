@@ -5,7 +5,7 @@ script = "contracts/script"
 out = "contracts/out"
 cache_path = "contracts/cache"
 libs = ["node_modules"]
-remappings = ["forge-std/=node_modules/forge-std/src/"]
+remappings = ["forge-std/=node_modules/forge-std/src/", "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/"]
 solc_version = "0.8.30"
 evm_version = "cancun"
 optimizer = true
