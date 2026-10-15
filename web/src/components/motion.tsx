@@ -85,8 +85,12 @@ export function CountUp({ value, className }: { value: number; className?: strin
 
   return (
     <span ref={ref} className={className}>
-      {/* Screen readers always get the real value, never an intermediate frame. */}
-      <span aria-hidden="true">{instant ? value : display}</span>
+      {/* The final value, invisible, reserves the width so counting from 0 to 12 never re-wraps
+          the layout (a layout shift). Screen readers get the real value, never a frame. */}
+      <span className="count-box" aria-hidden="true">
+        <span className="count-ghost">{value}</span>
+        <span className="count-live">{instant ? value : display}</span>
+      </span>
       <span className="sr-only">{value}</span>
     </span>
   );

@@ -184,10 +184,13 @@ export function useWalletController() {
       connection.chainId === runtime.chain.id
         ? { kind: "connected", address: connection.address, chainId: connection.chainId }
         : { kind: "wrong-chain", address: connection.address, chainId: connection.chainId };
+  } else if (hasProvider === false) {
+    // Checked before "reconnecting": wagmi briefly reports reconnecting on every load, and with no
+    // wallet there is nothing to reconnect. Deciding "no wallet" on the first paint keeps the
+    // read-only notice from popping in and shifting the page (measured: 0.15 CLS on mobile).
+    state = { kind: "no-wallet" };
   } else if (connection.status === "connecting" || connection.status === "reconnecting" || connect.isPending) {
     state = { kind: "connecting" };
-  } else if (hasProvider === false) {
-    state = { kind: "no-wallet" };
   } else if (locked) {
     state = { kind: "locked" };
   } else {

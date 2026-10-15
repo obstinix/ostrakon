@@ -293,6 +293,9 @@ main:focus {
 .netbar dd {
   margin: 0;
 }
+.netbar [data-testid="block-number"] {
+  min-width: 7ch; /* "#123456": the number grows without moving its neighbours */
+}
 .netbar .muted {
   color: var(--night-2);
 }
@@ -581,6 +584,17 @@ main:focus {
 }
 .row-label {
   display: none;
+}
+.count-box {
+  display: inline-grid;
+}
+.count-ghost,
+.count-live {
+  grid-area: 1 / 1;
+  justify-self: end;
+}
+.count-ghost {
+  visibility: hidden;
 }
 .row-sealed {
   display: block;
@@ -1270,6 +1284,18 @@ select:focus-visible {
 @media (max-width: 720px) {
   .netbar {
     flex-wrap: wrap;
+    align-items: start;
+  }
+  /* A fixed two-column grid: live values (block number, account, role) changing length can't
+     re-wrap the bar and push the page down (that was a 0.15 layout shift on mobile). */
+  .netbar-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-1) var(--s-3);
+  }
+  .netbar-items > div {
+    overflow: hidden;
+    white-space: nowrap;
   }
   .netbar-contract {
     display: none !important;

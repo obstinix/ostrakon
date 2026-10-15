@@ -425,7 +425,7 @@ test("reduced motion: final values render immediately, no transitions", async ({
   await page.goto("/e/3");
   await expect(page.locator(".card")).toHaveCount(4);
   // Visible digits equal the real tally without waiting for any animation.
-  const visible = await page.locator(".card-tally .count > [aria-hidden=true]").allTextContents();
+  const visible = await page.locator(".card-tally .count .count-live").allTextContents();
   const real = await page.locator(".card-tally .count > .sr-only").allTextContents();
   expect(visible).toEqual(real);
   const duration = await page.locator(".bar-fill").first().evaluate((el) => getComputedStyle(el).transitionDuration);
