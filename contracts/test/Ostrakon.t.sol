@@ -19,7 +19,9 @@ contract OstrakonBase is Test {
         string name,
         string[] candidates,
         uint64 votingStart,
-        uint64 votingEnd
+        uint64 votingEnd,
+        bool secret,
+        uint64 revealEnd
     );
     event VoterRegistered(uint256 indexed electionId, address indexed voter);
     event PhaseChanged(uint256 indexed electionId, Ostrakon.Phase from, Ostrakon.Phase to, bool byTimestamp);
@@ -90,7 +92,7 @@ contract ReportScenariosTest is OstrakonBase {
     // 1. Admin creates an election with three candidates -> ids 0,1,2; ElectionCreated emitted.
     function test_R01_createWithThreeCandidates() public {
         vm.expectEmit(true, true, false, true);
-        emit ElectionCreated(1, admin, "Class Rep", _three(), 0, 0);
+        emit ElectionCreated(1, admin, "Class Rep", _three(), 0, 0, false, 0);
         uint256 id = _create();
         assertEq(id, 1);
         string[] memory c = o.getCandidates(id);
@@ -309,7 +311,7 @@ contract PhaseTest is OstrakonBase {
         vm.expectEmit(true, false, false, true);
         emit PhaseChanged(id, Ostrakon.Phase.Voting, Ostrakon.Phase.Ended, false);
         _advance(id);
-        assertEq(uint8(_phase(id)), 2);
+        assertEq(uint8(_phase(id)), uint8(Ostrakon.Phase.Ended));
     }
 
     function test_cannotAdvancePastEnded() public {
@@ -420,7 +422,7 @@ contract PhaseTest is OstrakonBase {
         vm.warp(t + 199);
         assertEq(uint8(_phase(id)), 1);
         vm.warp(t + 200);
-        assertEq(uint8(_phase(id)), 2, "ends exactly at votingEnd");
+        assertEq(uint8(_phase(id)), uint8(Ostrakon.Phase.Ended), "ends exactly at votingEnd");
         vm.prank(bob);
         vm.expectRevert(
             abi.encodeWithSelector(Ostrakon.WrongPhase.selector, id, Ostrakon.Phase.Voting, Ostrakon.Phase.Ended)
@@ -447,7 +449,7 @@ contract PhaseTest is OstrakonBase {
         uint64 t = uint64(vm.getBlockTimestamp());
         uint256 id = _createScheduled(0, t + 50);
         vm.warp(t + 60);
-        assertEq(uint8(_phase(id)), 2);
+        assertEq(uint8(_phase(id)), uint8(Ostrakon.Phase.Ended));
         vm.expectEmit(true, false, false, true);
         emit PhaseChanged(id, Ostrakon.Phase.Registration, Ostrakon.Phase.Ended, true);
         o.syncPhase(id);
@@ -483,7 +485,7 @@ contract PhaseTest is OstrakonBase {
         _advance(id);
         assertEq(uint8(_phase(id)), 1);
         vm.warp(t + 1000);
-        assertEq(uint8(_phase(id)), 2);
+        assertEq(uint8(_phase(id)), uint8(Ostrakon.Phase.Ended));
     }
 }
 
@@ -795,19 +797,19 @@ contract ViewsTest is OstrakonBase {
         uint256 e2 = _create(); // alice not registered
         _vote(e1, alice, 0);
         assertEq(e2, 2);
-        (bool[] memory reg, bool[] memory voted) = o.getVoterStatuses(alice, 0, 10);
+        (bool[] memory reg, bool[] memory voted,) = o.getVoterStatuses(alice, 0, 10);
         assertEq(reg.length, 2);
         assertTrue(reg[0]);
         assertTrue(voted[0]);
         assertFalse(reg[1]);
         assertFalse(voted[1]);
-        (reg, voted) = o.getVoterStatuses(alice, 1, 10);
+        (reg, voted,) = o.getVoterStatuses(alice, 1, 10);
         assertEq(reg.length, 1);
         assertFalse(reg[0]);
-        (reg, voted) = o.getVoterStatuses(alice, 0, 1);
+        (reg, voted,) = o.getVoterStatuses(alice, 0, 1);
         assertEq(reg.length, 1);
         assertTrue(voted[0]);
-        (reg, voted) = o.getVoterStatuses(alice, 2, 10);
+        (reg, voted,) = o.getVoterStatuses(alice, 2, 10);
         assertEq(reg.length, 0);
         assertEq(voted.length, 0);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.PageTooLarge.selector, 101, 100));
