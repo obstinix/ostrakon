@@ -9,8 +9,9 @@ Foundry has first-class fuzz and invariant testing (`forge test`), coverage, gas
 **Solidity dependencies: forge-std as a pinned HTTPS tarball in `package.json`.**
 `npm install` fetches everything, with an integrity hash in the lockfile, so a clone needs no `git submodule` step. I rejected `forge install` (git submodules: easy to forget `--recursive`), the `forge-std` npm package (stale at 1.1.2), and a `github:` dependency (npm wrote a `git+ssh` URL into the lockfile, which breaks for anyone without GitHub SSH keys).
 
-**No OpenZeppelin.**
-The contract has no tokens, no ether, and no external calls. Per-election admin replaces `Ownable`, a single global owner (AUDIT C-06). Nothing needs `ReentrancyGuard`. Pulling OZ in for one `MerkleProof` call would only be justified if the Merkle allowlist stretch goal ships, and it hasn't.
+**OpenZeppelin: only `MerkleProof` on chain, and its partner `@openzeppelin/merkle-tree` in the browser.**
+The contract has no tokens, no ether, and no external calls. Per-election admin replaces `Ownable` (a single global owner, AUDIT C-06), and the two-step hand-over is written directly against that per-election model, so nothing else from OZ earns its place. The Merkle allowlist is the exception: proof verification is easy to get subtly wrong (leaf/node domain separation, sorted pairs), so it uses OZ's audited `MerkleProof.verifyCalldata`. The app builds trees with OZ's `StandardMerkleTree` JS library, whose double-hashed leaf format is exactly what the contract checks. That pairing is the tested contract between browser and chain, and admins can produce compatible trees with OZ's own tooling. The JS library is loaded lazily (a 36 kB gzipped chunk), only on allowlisted elections and the admin panel.
+I rejected a hand-rolled tree: it would need its own proof format and its own audit.
 
 **Local chain: Anvil.**
 It starts quickly, uses a deterministic mnemonic (so the contract always lands at the same address on a fresh chain), and supports `evm_setIntervalMining`. The dev script seeds with instant mining, then switches to a 2 s block time so confirmations visibly count up, like a real network. Its WebSocket endpoint enables push event subscriptions. I rejected the Hardhat node because it would add a second toolchain.
@@ -51,9 +52,10 @@ Vite bundles the font files into `dist/`, so the app makes no third-party font r
 
 **Testing:**
 - Foundry for contract unit, fuzz, and invariant tests.
-- Vitest for pure frontend logic (`decodeError`).
-- Playwright for the browser run against a `VITE_E2E=1` build, which adds the mock connector.
-- I rejected Cypress: Playwright drives Chromium headless with less setup and has a better trace viewer.
+- Vitest for pure frontend logic (`decodeError`, receipts, allowlists, wallet choice, replacement handling).
+- Playwright for the browser run against a `VITE_E2E=1` build, which adds the mock connector. Projects: installed Chrome, Firefox, WebKit, Pixel 7 (Chrome) and iPhone 14 (WebKit). Each project gets a freshly seeded chain.
+- I rejected Cypress: Playwright drives Chromium, Firefox, and WebKit headless with less setup, and has a better trace viewer.
+- Lighthouse CLI (`npx lighthouse@12.6.0`) for performance on the production build. The DevTools Lighthouse panel omits the performance category's per-element layout-shift detail, which was needed to find a mobile CLS bug.
 
 **Static analysis: Slither, plus `forge lint -D warnings`.**
 `forge lint` runs as a separate gate (`npm run lint:sol`), and any remaining lint is triaged inline with the reason. Slither isn't an npm dependency because it's Python. VERIFICATION.md shows the exact command, and SECURITY.md triages every finding.

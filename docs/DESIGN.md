@@ -79,6 +79,10 @@ The scale runs from `--step--1` (13px) to `--step-4` (a fluid `clamp(2.25rem …
 - **The on-chain record** is a vertical chain of real events grouped into phase bands, beside a pinned phase rail.
 - **Tables collapse to labeled stacked rows** below 720px (`td::before { content: attr(data-label) }`).
 - **No pill buttons.** Buttons are 2px-radius rectangles. Status tags are small uppercase outlined labels.
+- **Wallet chooser.** With one wallet, "Connect wallet" connects. With several (EIP-6963), the same button opens a small ink-coloured menu that lists each wallet by name. It closes with Escape, and every entry is a real button.
+- **Allowlist loader.** This is an in-panel form, not a modal: a button for the admin's link, a dashed file input, and a paste box. Its states ("Check the allowlist", "You can vote (allowlist)", "Not on the allowlist") reuse the eligibility panel's heading, so the panel never changes shape.
+- **Nomination.** A nominee sees a clay-bordered panel in the election header with one action, "Accept admin role". Everyone else sees a single line saying a hand-over is pending.
+- **Sealed and recoverable states.** Hidden tallies use a dashed "sealed" label instead of a zero, so a hidden count can't be mistaken for no votes. Receipt status ("your wallet can rebuild it" or "your wallet can't rebuild this one") is stated in words, not with an icon.
 
 **Banned patterns I avoided:**
 - no centered hero with two CTA cards (the home page *is* the ledger)
@@ -93,7 +97,7 @@ Everything animates **only `transform` and `opacity`**. The final value is alway
 |---|---|---|
 | **Scroll-linked phase rail** (Election page) | The rail fills as you scroll through the record, but **can't run past the election's real phase**: Registration-phase elections barely start it, each later phase fills one more segment (halves for open ballots, thirds for secret ballots), and Ended goes to the end. The scroll position shows where you are in the record; the filled part shows how far the election has actually got. | Passive scroll listener; one `getBoundingClientRect` per frame (rAF-throttled); writes `scaleY` |
 | **Chain line drawn while scrolling** | The connecting line between real `#block` events grows with your reading position. | Same hook, `scaleY` |
-| **Count-ups** (figures, tallies) | Numbers count up once when they enter the viewport. Screen readers always get the real value through an `sr-only` twin; the animated digits are `aria-hidden`. | IntersectionObserver + rAF |
+| **Count-ups** (figures, tallies) | Numbers count up once when they enter the viewport. Screen readers always get the real value through an `sr-only` twin; the animated digits are `aria-hidden`. An invisible copy of the final value sits in the same grid cell, so going from 0 to 12 never widens the element or re-wraps its row (no layout shift). | IntersectionObserver + rAF |
 | **Bars fill** | Vote share bars fill when seen. | `scaleX` with a CSS transition |
 | **Staggered ledger rows** | Rows fade and lift in, 45ms apart. | `opacity` + `translateY` |
 | **Card tilt** | Signals that the card is interactive. Mouse only; touch and pen get none. | Pointer → rAF → `rotateX/Y` |
@@ -110,4 +114,10 @@ Everything animates **only `transform` and `opacity`**. The final value is alway
 - Transaction progress and wallet notices are `aria-live="polite"`.
 - Every interaction works by keyboard. The vote flow is tested with Tab, Enter, and Space only. No information is hover-only: the full hash is in `title` *and* behind a copy button.
 - Usable at 360px with no horizontal scroll, checked on five routes by E2E.
-- Lighthouse accessibility score: **100**.
+- Lighthouse accessibility score: **100** on both desktop and mobile.
+
+## Layout stability
+Lighthouse CLI on mobile first measured CLS 0.15. `main` was moving 162 px on first load. There were three causes, and all three are fixed. CLS is now **0** on mobile and desktop (VERIFICATION.md §6):
+1. wagmi reports "reconnecting" on every load, which delayed the no-wallet notice by a frame. The no-wallet state now wins on the first paint.
+2. The network bar wrapped freely at phone widths, so a block number appearing could add a line. Below 720 px it's now a fixed two-column grid, and the block number reserves `7ch`.
+3. Count-ups widened as they counted. The final value now reserves its width (see Motion).

@@ -346,8 +346,8 @@ Evidence is in [VERIFICATION.md](VERIFICATION.md) unless noted.
 | C-02 no winner | Resolved | `FinalizeTest`, fuzz `testFuzz_finalizeMatchesArgmax` |
 | C-03 no validation | Resolved | `CreateValidationTest` (10), fuzz `testFuzz_nameLengths` |
 | C-04 zero address | Resolved | `test_singleRejectsZero`, `test_batchSkipsZeroAndAlreadyRegistered` |
-| C-05 unbounded batch | Resolved | `MAX_BATCH = 200`, full batch costs 9.47M gas; UI chunks longer lists |
-| C-06 single owner | Resolved | Per-election admin plus `transferAdmin`; `AccessControlTest` |
+| C-05 unbounded batch | Resolved | `MAX_BATCH = 200`, full batch costs 9.47M gas; UI chunks longer lists. For large electorates the Merkle allowlist replaces per-address registration entirely (`testFuzz_largeElectorate`, 2–2,000 members) |
+| C-06 single owner | Resolved | Per-election admin plus two-step hand-over (`transferAdmin` → `acceptAdmin`, `cancelAdminTransfer`); `AccessControlTest`, `TwoStepAdminTest` |
 | C-07 owner-only list that's public anyway | Resolved | Public paginated `getVoters`; README says the list is public |
 | C-08 no ballot secrecy | **Partly addressed** | Open ballots stay public (documented). An optional secret-ballot (commit–reveal) mode hides choices and running totals until reveal; choices are public after reveal. `SecretBallotTest` (22), `invariant_secretBallot`, lifecycle and E2E secret-ballot runs |
 | C-09 N+1 reads | Resolved | `getTallies`, `getElections`, `getVoterStatuses` |
@@ -369,3 +369,22 @@ Evidence is in [VERIFICATION.md](VERIFICATION.md) unless noted.
 | F-12 accessibility | Resolved | Lighthouse accessibility 100; keyboard-only vote; 360px test |
 | F-13 visual system | Resolved | DESIGN.md |
 | F-14 debug text in nav | Resolved | Network bar by design |
+
+---
+
+## 8. Follow-up audit of Ostrakon itself (second round)
+
+These findings come from re-auditing Ostrakon after the secret-ballot release, not the reference project. Each has the evidence that found it and its status.
+
+| ID | Finding | How it was found | Status |
+|---|---|---|---|
+| R-01 | Single-step `transferAdmin`: a mistyped address took the election for good | SECURITY.md listed it as an accepted risk | **Fixed.** Nominate, then accept, with cancel. 8 tests; a one-step mutant is caught by 5 of them |
+| R-02 | Large electorates needed one registration per address (≈47k gas each, paid by the admin) | AUDIT C-05 / brief | **Fixed.** Merkle-root allowlist (OpenZeppelin format), voter-paid claims, frozen at voting. 14 tests, an invariant, and 2 E2E flows |
+| R-03 | A lost secret-ballot receipt meant a lost vote | SECURITY.md commit–reveal weaknesses | **Mitigated.** The salt comes from a deterministic wallet signature, and "Recover with my wallet" rebuilds the receipt. E2E wipes the receipt and recovers it; a declined signature falls back to a random salt |
+| R-04 | The connect button always used `connectors[0]` (the generic `window.ethereum` connector). With several wallet extensions it could connect whichever one had overwritten `window.ethereum`, and it failed for wallets that only announce via EIP-6963 | Code review of `useWalletController` | **Fixed.** EIP-6963 wallets are offered by name (`pickWallets`, unit-tested). E2E: two announced wallets, the chosen one connects |
+| R-05 | A wallet "speed up / cancel" replacement could be reported as success: viem resolves `waitForTransactionReceipt` with the *replacement's* receipt, even when it was a cancellation or a different call | Reading viem's `waitForTransactionReceipt` source | **Fixed.** Only "repriced" counts; "cancelled"/"replaced" are reported as not having happened. Receipt waits time out at 3 minutes with curated copy. Unit-tested (`replacementOutcome`, timeout mapping) |
+| R-06 | Mobile CLS 0.15: `main` moved 162 px on first load | Lighthouse CLI 12.6 trace (`LayoutShift` events) | **Fixed.** CLS 0 on mobile and desktop. Root causes are in DESIGN.md "Layout stability" |
+| R-07 | `forge lint` `reentrancy-events` warnings after adding `MerkleProof` | `npm run lint:sol` | **False positive, triaged.** The deployed bytecode has no CALL-family opcodes. Suppressed inline with the reason (SECURITY.md) |
+| R-08 | The Ledger said "Not on list" to allowlisted voters who hadn't claimed yet | Review of the new feature against existing screens | **Fixed.** It now says "Check allowlist", and eligibility shows in the row's record |
+| R-09 | Firefox E2E can't launch here: the Playwright Firefox build fails with "side-by-side configuration is incorrect" (a missing Microsoft Visual C++ runtime) | `npm run test:e2e -- --projects=firefox` | **Blocked by the environment.** Needs a system runtime install (an admin action I didn't take). The same tests pass on Chrome, WebKit, Pixel 7 and iPhone 14 |
+| R-10 | A real MetaMask extension isn't exercised | — | **Blocked.** Onboarding MetaMask means creating a wallet and setting a password inside a third-party extension, which I won't do on the user's behalf. MetaMask's protocol behaviour (lock state, 4902 add-chain-then-switch, accounts emptied, EIP-6963) is covered by stub-provider E2E tests through the real injected connector. A manual checklist is in VERIFICATION.md |

@@ -57,6 +57,8 @@ Still accurate. You could add: "…and the election's phases and closing time mu
 7. Add: anyone can **finalize** an ended election; the result (winner or tie) is stored and emitted.
 8. Add: anyone can verify their own vote from the `Voted` event (Audit → Verify my vote).
 9. Add: the creator chooses an **open or secret ballot**. In a secret ballot a registered voter seals one commitment during Voting and reveals it during Reveal; only revealed votes are counted.
+10. Add: for large electorates the admin can publish a **Merkle-root allowlist** instead of registering every address; listed voters register themselves with a proof (during Registration, or in the same transaction as their vote). The list is frozen when voting opens.
+11. Add: the admin role is handed over in **two steps** (nominate, then the nominee accepts; the admin can cancel).
 
 ## 6. Implementation
 **§6.1 Architecture.** Replace Figure 1 with the README diagram. Differences from the original:
@@ -69,13 +71,15 @@ Still accurate. You could add: "…and the election's phases and closing time mu
 | Role | Functions | Enforced by |
 |---|---|---|
 | Anyone | `createElection`, `createSecretElection`, `finalize`, `syncPhase`, all views | none (after `finalize`: phase must be Ended) |
-| Election admin | `registerVoter`, `registerVoters`, `advancePhase`, `transferAdmin` | `onlyAdmin(electionId)` → `NotAdmin` |
+| Election admin | `registerVoter`, `registerVoters`, `setAllowlist`, `advancePhase`, `transferAdmin`, `cancelAdminTransfer` | `onlyAdmin(electionId)` → `NotAdmin` |
+| Nominated admin | `acceptAdmin` | `pendingAdmin == msg.sender` → `NotPendingAdmin` |
+| Allowlisted address | `registerWithProof`, `voteWithProof`, `commitVoteWithProof` | Merkle proof of `msg.sender` against the stored root → `NotOnAllowlist` |
 | Registered voter (secret ballot) | `commitVote(electionId, commitment)` in Voting, `revealVote(electionId, candidateIndex, salt)` in Reveal | phase, `registered`, one commitment, commitment must match on reveal |
 | Registered voter | `vote(electionId, candidateIndex)` | phase == Voting, `registered`, `!voted` |
 
 The struct now also holds `admin`, `votingStart`, `votingEnd`, `storedPhase`, `finalized`, `tie`, `winner`, `createdBlock`, `totalVotes`, and `tallies[]` (an array replacing the `votesPerCandidate` mapping, so all tallies are one read). `exists` is gone: an id is valid when `1 ≤ id ≤ electionCount`.
 
-There are seven events (three before): `ElectionCreated` (now includes admin, candidates, the window, and the ballot mode), `VoterRegistered`, `PhaseChanged` (new), `Voted`, `VoteCommitted` (new, secret ballot), `Finalized` (new), and `AdminTransferred` (new).
+There are nine events (three before): `AdminTransferStarted` and `AllowlistSet` are new in the latest round, alongside `ElectionCreated` (now includes admin, candidates, the window, and the ballot mode), `VoterRegistered`, `PhaseChanged` (new), `Voted`, `VoteCommitted` (new, secret ballot), `Finalized` (new), and `AdminTransferred` (new).
 
 **§6.3 Contract listing.** Replace with `contracts/src/Ostrakon.sol`. Main differences:
 - custom errors
@@ -117,16 +121,19 @@ There are seven events (three before): `ElectionCreated` (now includes admin, ca
 | 11 | `test_R11_nonexistentElectionReverts` | `ElectionNotFound` |
 | 12 | `test_R12_registrationIsPerElection` | `NotRegistered` |
 
-Add a paragraph: 89 Foundry tests in total, including fuzz tests and 5 invariants (tallies sum to the total, no double votes, secret-ballot commit/reveal rules, phases never go backwards, finalize only after Ended). Coverage is 100% of lines, statements, branches, and functions. There are also 16 browser tests and a 38-assertion scripted lifecycle run covering both ballot modes. See VERIFICATION.md.
+Add a paragraph: 111 Foundry tests in total, including fuzz tests (one over electorates of 2–2,000 allowlisted addresses) and 6 invariants (tallies sum to the total, no double votes, secret-ballot commit/reveal rules, allowlist admits only listed addresses, phases never go backwards, finalize only after Ended). Coverage is 100% of lines, statements, branches, and functions. There are also 22 browser tests passing on Chrome, WebKit, Pixel 7 and iPhone 14 (plus a touch-only test on the two phones) and a 49-assertion scripted lifecycle run. See VERIFICATION.md.
 
 ## 7. Snapshots
-Replace Figures 3–6 with `docs/screenshots/`: `ledger.png`, `election.png`, `lifecycle.png`, `admin.png`, `audit.png`, `result.png`, `secret-ballot.png`, `mobile-ledger.png`. Figure 2 (node running) can be replaced with the `npm run dev` console output, which lists the deployed address and the demo accounts and their roles.
+Replace Figures 3–6 with `docs/screenshots/`: `ledger.png`, `election.png`, `lifecycle.png`, `admin.png`, `audit.png`, `result.png`, `secret-ballot.png`, `allowlist.png`, `mobile-ledger.png`. Figure 2 (node running) can be replaced with the `npm run dev` console output, which lists the deployed address and the demo accounts and their roles.
 
 ## 8. Conclusion and future scope
 Now implemented:
 - "Election phases (Registration, Voting, Ended) and time windows enforced by block timestamps, with an on-chain winner function"
 - "Commit–reveal voting", as an optional secret-ballot mode with its own Reveal phase. Its trade-offs are documented: choices become public at reveal, unrevealed votes don't count, and late revealers can selectively abort.
 - "Complete automated contract tests"
+- "gas optimisation of bulk registration", answered more fundamentally: a **Merkle-root allowlist** lets one transaction define an electorate of any size
+
+Also implemented beyond the report: **two-step admin hand-over** and **wallet-recoverable secret-ballot receipts**.
 
 Still future work, carried over:
 - zero-knowledge ballot secrecy (secrecy that survives the count)
@@ -135,9 +142,8 @@ Still future work, carried over:
 - a professional audit
 
 New future work:
-- a Merkle-root allowlist for large electorates
-- two-step admin transfer
 - an indexer for long-lived public deployments
+- a forfeitable deposit to discourage selective abort in the Reveal phase
 
 The paragraph on limits stays accurate. Update "the owner-only voter list can also be reconstructed from the public registration events": in Ostrakon the voter list is simply **public**, and the app says so.
 

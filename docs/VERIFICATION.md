@@ -1,26 +1,30 @@
 # Verification
 
-Every result below came from running the command shown. Outputs are trimmed to the relevant lines and otherwise unedited.
+Every result below came from running the command shown. Outputs are trimmed to the relevant lines and otherwise unedited. Where a result comes from an earlier commit, it says so and why it still applies.
 
-**Environment:** Windows 11, Node v22.23.1, npm 10.9.8, Foundry 1.8.5 (forge/anvil, SHA-256 of the release zip checked against the published `.sha256`), solc 0.8.30, Chrome (installed) driven by Playwright 1.64.1, Slither 0.11.6.
+**Environment:** Windows 11, Node v22.23.1, npm 10.9.8, Foundry 1.8.5 (forge/anvil; SHA-256 of the release zip checked against the published `.sha256`), solc 0.8.30. Browsers: Playwright 1.64.1 driving installed Chrome, plus Playwright WebKit 27.2 for desktop and iPhone 14. Slither 0.11.6, Lighthouse 12.6.0 (CLI).
 
 ## 1. Clean clone: install, lint, typecheck, tests, build
 
-Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at commit **`592d7f4`**. That's the build with the secret-ballot (commit–reveal) mode; the same sequence also passed earlier at `748ccff`, before that mode existed. Before installing, the clone had no `web/src/generated/` and no `deployment.json`: everything is generated.
+Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at the final code commit **`b063b6f`**. Before installing, the clone had no `web/src/generated/`, no `deployment.json`, and no allowlist files: everything is generated.
 
 ```
-npm ci                 exit=0   (209 packages)
+npm ci                 exit=0   (239 packages)
 npm run lint           exit=0   (forge fmt --check · forge lint -D warnings · eslint --max-warnings 0)
 npm run typecheck      exit=0   (forge build → gen-abi → tsc web + tsc node/scripts/e2e)
-npm run test           exit=0
+npm run test           exit=0   (111 Foundry + 21 Vitest)
 npm run coverage       exit=0
 npm run build          exit=0
-npm run lifecycle      exit=0
-npm run test:e2e       exit=0
+npm run lifecycle      exit=0   (49 assertions)
+npm run test:e2e -- --projects=chrome,webkit,mobile-chrome,mobile-safari   exit=0
+npm run test:e2e -- --projects=firefox                                     exit=1   (environment, see §4)
 npm audit --omit=dev   found 0 vulnerabilities
 ```
 
-The first clean-clone run found a real bug: `typecheck` failed with `TS2717`, because two E2E specs declared the test-hook `Window` type differently. My working copy hadn't run typecheck since the second spec was added. I fixed it in `748ccff`, and the whole sequence above was then rerun from a new clone.
+Earlier clean-clone runs found three real problems, all fixed before this one:
+- **TS2717** at `748ccff`: two E2E specs declared the test-hook type differently.
+- **A moderate `uuid` advisory**: `@openzeppelin/merkle-tree` → `@metamask/abi-utils` → `@metamask/utils` → `uuid` 9.0.1. npm's suggested fix downgrades the Merkle library, so instead an `overrides` pin to 11.1.1 was added (`89a7950`). It was re-tested with the allowlist unit, lifecycle, and E2E tests.
+- **The mobile layout shift** described in §6.
 
 ### Contract tests: unit, fuzz, invariant (`npm run test:contracts`)
 ```
@@ -32,53 +36,61 @@ Suite result: ok. 8 passed   (BatchTest)
 Suite result: ok. 12 passed  (ReportScenariosTest: the 12 core voting scenarios)
 Suite result: ok. 4 passed   (VoteFuzzTest)
 Suite result: ok. 6 passed   (FinalizeTest)
-Suite result: ok. 22 passed  (SecretBallotTest: commit–reveal mode)
+Suite result: ok. 22 passed  (SecretBallotTest: commit–reveal)
+Suite result: ok. 14 passed  (AllowlistTest: Merkle allowlist, incl. a 2..2,000-member electorate fuzz)
+Suite result: ok. 8 passed   (TwoStepAdminTest)
+[PASS] invariant_allowlistOnlyListed
 [PASS] invariant_finalizeOnlyWhenEnded
 [PASS] invariant_noDoubleVote
 [PASS] invariant_phaseMonotonic
 [PASS] invariant_secretBallot
 [PASS] invariant_talliesSumToTotal
-Ran 10 test suites in 16.45s: 89 tests passed, 0 failed, 0 skipped (89 total tests)
+Ran 12 test suites: 111 tests passed, 0 failed, 0 skipped (111 total tests)
 ```
-- Fuzz tests run 1,024 times each (`foundry.toml`, fixed seed).
-- Invariants run 256 runs × depth 64 over three elections: open/manual, open/scheduled, and secret.
-- Handler call counts per campaign: each of `register`, `advance`, `vote`, `commit`, `reveal` (sometimes with a tampered salt), `warp`, and `finalize` was called about 2,270–2,400 times.
+- Fuzz tests run 1,024 times each (fixed seed in `foundry.toml`).
+- Invariants run 256 runs × depth 64 over four elections: open/manual, open/scheduled, secret, and open with only a Merkle allowlist.
+- Handler call counts per campaign: each of `register`, `advance`, `vote`, `commit`, `reveal` (sometimes with a tampered salt), `claim` (members and outsiders with members' proofs), `warp`, and `finalize` was called about 2,000–2,100 times.
 
-**Do the invariants actually bite?** I checked by mutation (`contracts/src/Ostrakon.sol` edited, tests run, file restored):
+**Do the tests actually bite?** I checked by mutation (`contracts/src/Ostrakon.sol` edited, tests run, file restored):
 
 | Mutant | Caught by |
 |---|---|
-| Delete the `AlreadyVoted` check | `invariant_noDoubleVote` ("voted at most once: 2 > 1"), `invariant_talliesSumToTotal` ("totalVotes <= voterCount: 9 > 8") |
+| Delete the `AlreadyVoted` check | `invariant_noDoubleVote` ("voted at most once: 2 > 1"), `invariant_talliesSumToTotal` |
 | A vote for candidate 0 also adds one to candidate 1 | `invariant_talliesSumToTotal` ("sum(tallies) == totalVotes: 2 != 1") |
 | `advancePhase` sets Voting → Registration | `invariant_phaseMonotonic` ("phase went backwards") |
-| Ended is reported as Voting for manual elections | 10 unit tests failed. The invariants didn't catch this one: it hides Ended rather than moving the phase backwards, so it's a liveness bug, not a monotonicity violation. |
-| Secret ballot: `revealVote` skips the commitment check (`CommitmentMismatch` commented out) | `invariant_secretBallot` ("reveal with wrong salt accepted") |
-| Secret ballot: the `AlreadyRevealed` check is deleted | `invariant_secretBallot` ("revealed only what was committed: 2 > 1") |
+| Ended is reported as Voting for manual elections | 10 unit tests (a liveness bug, not a monotonicity violation, so the invariant can't see it) |
+| `revealVote` skips the commitment check | `invariant_secretBallot` ("reveal with wrong salt accepted") |
+| The `AlreadyRevealed` check is deleted | `invariant_secretBallot` ("revealed only what was committed: 2 > 1") |
+| Merkle proof not verified (`_registerByProof` accepts anything) | `testFuzz_largeElectorate`, `test_badProofsRejected`, `test_voteWithProofRules`, `invariant_allowlistOnlyListed` ("outsider claim accepted") |
+| Admin transfer completes in one step | 5 tests in `TwoStepAdminTest` plus `test_transferAdmin` ("nomination alone changes nothing") |
 
-Pass counts after each restore:
-- the first four mutants: 66/66 (67/67 once the `getVoterStatuses` test was added)
-- the two secret-ballot mutants: 89/89
-
-Adding the secret-ballot mode left the original 67 tests passing unchanged. The only test edits were the new enum value for Ended (now `3`, after `Reveal`), the extra `ElectionCreated` fields, and the third `getVoterStatuses` array.
+All 111 pass again after each restore.
 
 ### Frontend unit tests (`npm run test:web`)
 ```
- Test Files  3 passed (3)
-      Tests  14 passed (14)
+ Test Files  6 passed (6)
+      Tests  21 passed (21)
 ```
-- `errors.test.ts`: every custom error in the ABI has curated copy. Reverts are mapped by name, with arguments. Raw text (`0xdeadbeef stack at foo.ts:12`) never comes back out. Wallet rejection and network failures are classified.
-- `voters.test.ts`: list preview classifies valid, duplicate, already-registered, zero, malformed, and bad-checksum entries. Chunking is checked.
-- `secret.test.ts`:
-  - `commitmentHash` is deterministic and changes when any bound input changes (chain, contract, election, voter, choice, salt).
-  - Receipt parsing rejects malformed receipts.
-  - The create form enforces the reveal-schedule rules.
-  - That `commitmentHash` matches the contract's own encoding is proven separately: the lifecycle reveals below only succeed if it does.
+- `errors.test.ts`:
+  - every custom error in the ABI has curated copy
+  - reverts are mapped by name, with arguments
+  - raw text never comes back out
+  - wallet rejection, network failure, and receipt-timeout are classified
+- `voters.test.ts`: list preview (valid, duplicate, already-registered, zero, malformed, bad checksum) and chunking.
+- `secret.test.ts`: `commitmentHash` binds every input; receipt parsing; reveal-schedule rules in the create form.
+- `allowlist.test.ts`:
+  - trees round-trip through the published JSON
+  - members prove, outsiders don't
+  - a member's proof doesn't work for anyone else
+  - tampered and foreign files are rejected
+- `wallets.test.ts`: EIP-6963 wallets win over the generic `window.ethereum` connector.
+- `tx.test.ts`: only a "repriced" wallet replacement counts as the user's action.
 
 ## 2. Coverage, gas, static analysis
 
 ```
 $ npm run coverage
-| contracts/src/Ostrakon.sol | 100.00% (228/228) | 100.00% (284/284) | 100.00% (67/67) | 100.00% (32/32) |
+| contracts/src/Ostrakon.sol | 100.00% (280/280) | 100.00% (338/338) | 100.00% (78/78) | 100.00% (42/42) |
                                lines               statements          branches          functions
 ```
 
@@ -87,188 +99,173 @@ Gas, from `npm run gas:report` and `forge test -vvvv` (optimizer, 10,000 runs). 
 | Call | Gas |
 |---|---|
 | `vote` (first vote, cold) | 82,676 |
-| `commitVote` / `revealVote` (secret ballot) | 83,085 / 85,571 |
+| `commitVote` / `revealVote` | 83,085 / 85,571 |
+| `voteWithProof` (claim + vote) | 157,811 |
+| `setAllowlist` (root + short link) | 77,707 |
+| `transferAdmin` (nominate) / `acceptAdmin` | 50,489 / 35,982 |
 | `registerVoters` × 200 (the cap) | 9,472,010 (≈ 47,360 per address; 32% of a 30M block) |
-| `registerVoter` (median) | 80,551 |
 | `createElection` (median / 32 candidates) | 244,631 / 1,086,953 |
-| `advancePhase` (median) | 34,428 |
 | `finalize` (median) | 43,285 |
 
-The reference contract for comparison: `createElection` cost 153,431 with 2 candidates and 366,194 with 10, and a 1,200-address bulk registration ran out of gas at 30M (AUDIT C-05, C-11).
+For a large electorate, the allowlist replaces N × 47k gas paid by the admin with one ~78k `setAllowlist`. Each voter then pays their own claim, folded into their vote.
 
-**Slither 0.11.6** on the final contract, run in the clean clone:
+**Slither 0.11.6**, run in the clean clone:
 ```
-Detector: timestamp              _create          (Ostrakon.sol#487)
-Detector: timestamp              _effectivePhase  (Ostrakon.sol#520, #524, #528)
+Detector: timestamp              _create          (Ostrakon.sol#610)
+Detector: timestamp              _effectivePhase  (Ostrakon.sol#653, #657, #661)
 Detector: cyclomatic-complexity  _create (13)
-INFO:Slither:. analyzed (1 contracts with 102 detectors), 3 result(s) found
+INFO:Slither:. analyzed (3 contracts with 102 detectors), 3 result(s) found
 ```
-All three are triaged in [SECURITY.md](SECURITY.md). Slither isn't an npm dependency because it's Python. I installed it with `pip install slither-analyzer` in a throwaway venv and ran it with Foundry on `PATH`.
+All three are triaged in [SECURITY.md](SECURITY.md). The three contracts are `Ostrakon`, OZ `MerkleProof`, and OZ `Hashes`.
+
+**`forge lint -D warnings`** is clean. The `reentrancy-events` warnings that appeared with `MerkleProof` are false positives. A scan of the deployed bytecode for call-family opcodes found none:
+```
+call-family opcodes in deployed bytecode: none
+```
 
 ## 3. Scripted full lifecycle (`npm run lifecycle`)
-This starts its own anvil on :8547, deploys, and asserts through **`web/src/chain/reads.ts` and `errors.ts`**, the same read paths and error decoder the UI uses.
+This starts its own anvil on :8547 and asserts through **`web/src/chain/reads.ts`, `errors.ts` and `lib/allowlist.ts`**, the same code the UI uses.
 ```
-▸ create
-  ✓ listElections returns the new election
-  ✓ phase starts at Registration
-  ✓ creator is admin
-▸ register batch (with a repeat and the zero address)
-  ✓ voterCount == 4 (repeat and zero skipped)
-  ✓ getAllVoters lists them in order
-▸ advance to Voting
-  ✓ phase is Voting
-▸ votes
+▸ create · register batch · advance · votes
+  ✓ … 14 assertions (open ballot: create, batch with repeat and zero, phases)
   ✓ double vote rejected before reaching a wallet: "This account has already voted in this election."
   ✓ unregistered vote rejected: "This account is not registered for this election."
   ✓ invalid candidate rejected: "That candidate does not exist."
-  ✓ tallies are [1, 2, 0] after the rejected attempts
-  ✓ totalVotes == 3
-  ✓ voter #2 status: registered and voted
-  ✓ voter #5 status: registered, not voted
-  ✓ account #7 not registered (ledger batch view)
-▸ end + finalize (finalize sent by a non-admin)
-  ✓ phase Ended and finalized
-  ✓ winner is Grace (index 1), no tie
-  ✓ leaders() agrees with the contract
-▸ audit trail
-  ✓ 1 ElectionCreated
-  ✓ 4 VoterRegistered
-  ✓ 2 PhaseChanged
-  ✓ 3 Voted (rejected attempts left no trace)
-  ✓ 1 Finalized
-  ✓ findMyVotes finds exactly voter #3's vote via the indexed topic
-  ✓ log is in block order
-▸ secret ballot: create, register, open
-  ✓ secret election is in Voting, flagged secret
-  ✓ 4 sealed votes, 0 counted, tallies all zero while voting
-  ✓ reveal during Voting rejected: "That needs the Reveal phase, but the election is in Voting."
-▸ secret ballot: open reveal
-  ✓ phase is Reveal
-  ✓ reveal with a different choice rejected: "That receipt doesn't match the sealed vote on chain. Check that it is the receipt for this account and election."
-  ✓ reveal without a sealed vote rejected: "This account has no sealed vote to reveal in this election."
-  ✓ second reveal rejected: "This vote has already been revealed and counted."
-  ✓ voter #5: committed but not revealed
-▸ secret ballot: close reveal, finalize
+▸ end + finalize · audit trail                                   ✓ … 10 assertions
+▸ secret ballot                                                  ✓ … 15 assertions
+  ✓ reveal with a different choice rejected: "That receipt doesn't match the sealed vote on chain. …"
   ✓ tallies [1, 0, 2]: only revealed votes count
-  ✓ committed 4, counted 3
-  ✓ winner Linus (index 2)
-  ✓ 4 VoteCommitted, 3 Voted events
-  ✓ 3 PhaseChanged (Voting, Reveal, Ended)
-  ✓ findMyCommits finds #5's sealed vote
+▸ allowlist: 500-address list built with @openzeppelin/merkle-tree (the app's builder)
+  ✓ root and link read back through getAllowlist
+  ✓ #2 registered itself during Registration with a JS-built proof
+  ✓ allowlist frozen once voting opens: "That needs the Registration phase, but the election is in Voting."
+  ✓ #3 registered and voted in one transaction
+  ✓ outsider using a member's proof rejected: "This account isn't on the election's allowlist, or the list you loaded doesn't match it."
+  ✓ voterCount counts only claimed members (2 of 500)
+▸ allowlist + secret ballot: seal with a proof, then reveal
+  ✓ #4 registered and sealed in one transaction
+  ✓ revealed vote counted for Ada
+▸ two-step admin hand-over
+  ✓ nomination leaves the admin unchanged
+  ✓ only the nominee can accept: "This account hasn't been nominated as this election's admin."
+  ✓ nominee accepted and is now admin
 
-lifecycle: 38 assertions passed
+lifecycle: 49 assertions passed
 ```
-The secret-ballot commitments are computed by the app's own `commitmentHash` (TypeScript). The three successful reveals therefore show that it produces exactly the bytes the contract's `keccak256(abi.encode(...))` expects.
+Two cross-checks come from this run:
+- Proofs built by the browser's Merkle code are accepted on chain.
+- Commitments computed by the browser's `commitmentHash` reveal successfully.
 
-## 4. Browser run of the real app (`npm run test:e2e`)
-`scripts/e2e.ts` runs these steps:
-1. Starts anvil on :8546.
-2. Deploys and seeds.
-3. Builds with `VITE_E2E=1` into `dist-e2e/`.
-4. Serves it with `vite preview`.
-5. Runs Playwright in the installed Chrome.
+## 4. Browser runs of the real app (`npm run test:e2e[:all]`)
+`scripts/e2e.ts` builds once with `VITE_E2E=1` into `dist-e2e/` and serves it on :4174. Then, **for each Playwright project**, it:
+1. starts a fresh anvil on :8546
+2. deploys and seeds
+3. runs that project's tests
 
-The test-only wallet is wagmi's `mock` connector. It answers account and chain requests and forwards everything else, including `eth_sendTransaction`, to anvil, so the transactions are real. Locked and wrong-chain states use a stub EIP-1193 `window.ethereum` going through the app's **real `injected` connector**.
+The test-only wallet is wagmi's `mock` connector, which forwards transactions to anvil, so they are real. Wallet edge cases use stub EIP-1193 or EIP-6963 providers that go through the app's **real injected connector**.
 
+| Project | Engine / device | Result |
+|---|---|---|
+| chrome | installed Chrome, desktop | **22 passed**, 5 skipped |
+| webkit | WebKit 27.2 (Safari engine), desktop | **22 passed**, 5 skipped |
+| mobile-chrome | Pixel 7 emulation, touch | **23 passed**, 4 skipped |
+| mobile-safari | iPhone 14 emulation (WebKit), touch | **23 passed**, 4 skipped |
+| firefox | Playwright Firefox | **could not launch** (see below) |
+
+Skipped tests:
+- The screenshot and perf specs, which are opt-in.
+- The touch-only test on desktop.
+
+The 22 shared tests, plus the touch test:
 ```
-ok  1 read-only without a wallet: ledger, network bar, explanation
-ok  2 locked wallet is detected and explained
-ok  3 wrong chain: switched on connect, detected when the wallet changes network, one-click fix
-ok  4 a rejected connection shows curated copy only
-ok  5 registered voter votes with the keyboard; tally and eligibility update
-ok  6 unregistered account sees why it can't vote
-ok  7 admin: validate a pasted list, register, run the election to a result
-ok  8 non-admin cannot see admin controls
-ok  9 audit: verify-my-vote shows only what the chain proves
-ok 10 secret ballot: seal, keep the receipt, reveal in this browser or with a pasted receipt
-ok 11 anyone can create an election and lands on it   (open, then a secret ballot)
-ok 12 360px: no horizontal scroll, ledger rows stack
-ok 13 reduced motion: final values render immediately, no transitions
-ok 14 stale deployment (no code at the saved address) is explained, not blank
-ok 15 unreachable chain is explained, not blank
-ok 16 missing deployment.json explains how to get one
-16 passed · 2 skipped (the screenshot generator, which only runs with SHOTS=1)
+read-only without a wallet · locked wallet · wrong chain switch · rejected connection ·
+keyboard-only vote · unregistered account · admin: list preview, register, publish allowlist, run to result ·
+non-admin can't see admin controls · audit verify-my-vote · secret ballot (seal; wipe receipt and
+"Recover with my wallet"; declined signature falls back to random secret; reveal with stored receipt;
+reveal on a fresh device by pasting the receipt, wrong receipt refused) · create open + secret election ·
+360px no horizontal scroll on 7 routes · reduced motion · stale deployment · unreachable chain ·
+missing deployment.json · allowlist voter loads list from the admin's link and votes with a proof ·
+allowlist outsider + tampered list · two-step admin hand-over · MetaMask 4902 add-chain-then-switch ·
+MetaMask lock (accounts emptied) drops to read-only · EIP-6963 chooser picks the right wallet ·
+[touch] tap a card open and vote, no hover
 ```
-Test 10 runs the whole secret-ballot path across separate browser contexts:
-1. Tallies show as *sealed* while Voting is open.
-2. Voter #4 seals a vote. The receipt is saved and offered for download. The on-chain record shows "choice hidden".
-3. Voter #5 seals on another "device", meaning a separate context.
-4. The admin opens Reveal from a third session.
-5. #4 reveals with one click using the stored receipt.
-6. #5, on a fresh context with no stored receipt, first pastes #4's receipt, which is refused with curated copy. Then #5 pastes the right one, and the vote is counted.
+Every test that can surface errors also scans the page text for raw-error patterns: `execution reverted`, `ContractFunction`, `Error:`, stack frames, long hex blobs, and viem `Details:`/`Version:` lines.
 
-Tallies and the "2 of 4 sealed votes revealed" line are asserted after each step.
-- Every test that can surface errors also checks that the page text contains no raw-error patterns: `execution reverted`, `ContractFunction`, `Error:`, stack frames, long hex blobs, viem's `Details:` or `Version:` lines.
-- Test 5 is keyboard only: focus, then Enter, then Space, then Enter.
-- Test 11 checks `scrollWidth ≤ innerWidth` at 360px on `/`, `/e/1`, `/audit`, `/how`, and `/new`.
+**Firefox is blocked by the environment.** The Playwright Firefox build doesn't start on this machine:
+```
+Error: browserType.launch: spawn UNKNOWN
+PS> Start-Process firefox.exe → "The application has failed to start because its side-by-side configuration is incorrect."
+```
+That error means a Microsoft Visual C++ runtime is missing. Installing a system runtime is an administrative change I didn't make. No regular Firefox is installed either. Anyone with the runtime (or on Linux or macOS) can run `npm run test:e2e:all`; the Firefox project is already configured.
 
 **The test connector is excluded from production builds.** In the clean clone:
 ```
 $ grep -rlE 'Mock Connector|__OSTRAKON_E2E__|testConnector' dist/ | wc -l
 0
 $ grep -rlE 'Mock Connector|__OSTRAKON_E2E__' dist-e2e/
-dist-e2e/assets/testConnector-BcXJ3sdj.js        (positive control: present in the E2E build)
+testConnector-*.js      (positive control: present in the E2E build)
 ```
-It's only reachable through `if (import.meta.env.VITE_E2E === "1") await import("./testConnector")`. In a normal build, Vite replaces that condition with a constant false, so the chunk is never emitted.
 
-### Manual checks (in-app browser against `npm run dev`)
-- **Phase 1 one-command run.** `npm run dev` printed `0x5fbdb2315678afecb367f032d93f642f64180aa3 (block 1)`, "wrote web/public/deployment.json", the account and role table, and the Vite URL. In a browser with no wallet, the page showed `rpc=up code=present`, the live block, and all 5 seeded elections, with 0 console errors and 0 failed requests (58 resources).
-- **Timestamp phase, live.** Election 5 ("opens in 10 minutes") showed *Registration* at first and *Voting* after its scheduled time passed, with no transaction sent.
-- **Real MetaMask: not tested.** The browsers I could drive have no extension wallet. MetaMask-specific behavior is therefore covered only by the stub provider in tests 2–3: the `_metamask.isUnlocked` lock hint, and switch-or-add chain through `wallet_switchEthereumChain`. See "Not executed" below.
+### Manual checks
+- **One-command run.** `npm run dev` deploys to `0x5fbdb2315678afecb367f032d93f642f64180aa3 (block 1)`, seeds seven elections, writes `web/public/deployment.json` and `web/public/allowlists/7.json`, prints the account and role table, and serves the app.
+- **Chain restart under an open app** (§5) was measured at `163133a`. The health-check code it exercised hasn't changed since. E2E tests for stale, unreachable, and missing-deployment states run on every commit.
 
-## 5. Restarting the local chain under an open app
-`/e/1` was open in the in-app browser against `npm run dev`.
+### Manual MetaMask checklist (not executed)
+Onboarding a real MetaMask means creating a wallet and setting a password inside a third-party extension. That's outside what I'll do on someone's behalf, so these steps are left for a person. Its protocol behavior is covered by the stub-provider tests above.
+1. `npm run dev`, then `npm run keys`. In MetaMask, import key #4.
+2. Open http://localhost:5173 → **Connect wallet**. MetaMask should offer to add or switch to *Anvil (local)* (chain 31337).
+3. Election 1: vote (two prompts are expected only for secret ballots).
+4. Election 6: seal a vote. MetaMask shows a signature request with the recovery message, then a transaction.
+5. In MetaMask, switch to another network. The app shows "Wallet is on a different network" → **Switch network**.
+6. Lock MetaMask. The app drops to read-only.
+7. Election 7: load the list from the admin's link, then vote. One transaction registers and votes.
 
-1. **Killed only anvil** (`Stop-Process` on the PID listening on :8545; Vite kept running).
-   - First attempt: the page took about 5–14 s to show "Can't reach the chain", because viem's default retries ran across the WS→HTTP fallback.
-   - **Second bug found:** after I started a *fresh* anvil, the page **never recovered**. viem's `watchBlockNumber` only emits block numbers *greater* than the previous one (`if (blockNumber > prevBlockNumber) emit…` in `actions/public/watchBlockNumber.ts`), so a chain restarting at block 0 was invisible.
-   - **Fix (`163133a`):** a dedicated 1 s poll on a no-retry HTTP client (2.5 s timeout) that handles outage, recovery, and backwards block numbers, and re-checks contract code every 10 s.
-2. Fresh anvil with no contract → reload → "**The contract isn't at the saved address**", with the address, the likely cause, and `npm run chain:deploy`.
-3. `npm run chain:deploy` with the page still open → the notice cleared and the election re-rendered at block #27. **No reload.**
-4. Killed anvil again with the page open. The page measured the time until the notice appeared:
-   ```
-   { detectedAfterMs: 1528, mainStillHasContent: true, notices: ["CAN'T REACH THE CHAIN", "READ-ONLY MODE"] }
-   ```
-5. Started a fresh anvil. Same page, no reload:
-   ```
-   { staleDetectedAfterMs: 965, block: "#0", notices: ["THE CONTRACT ISN'T AT THE SAVED ADDRESS …", …] }
-   ```
-At no point was the screen blank. Last-known content stays visible, and the notices say so. E2E tests 13–15 now cover the stale, unreachable, and missing-deployment states automatically.
+## 5. Restarting the local chain under an open app (measured at `163133a`)
+1. **Killed only anvil.** This found two bugs, both fixed in `163133a`:
+   - Detection originally took 5–14 s because of viem retries.
+   - After a *fresh* anvil started, the page never recovered. viem's `watchBlockNumber` only emits block numbers greater than the last, so a chain restarting at 0 was invisible.
+   - **Fix:** a 1 s no-retry health poll that handles outage, recovery, and backwards block numbers, and re-checks contract code every 10 s.
+2. Fresh anvil, no contract → "**The contract isn't at the saved address**" with `npm run chain:deploy`. Running that cleared the notice with **no reload**.
+3. Killed with the page open: `{ detectedAfterMs: 1528, mainStillHasContent: true }`. Fresh anvil: `{ staleDetectedAfterMs: 965, block: "#0" }`.
 
-## 6. Performance, reduced motion, scroll smoothness
-Production build (`npm run build`), served by `vite preview`, audited with Lighthouse through Chrome DevTools (desktop).
+## 6. Performance, layout stability, reduced motion, scroll
+Production build (`npm run build` at `b063b6f`), `vite preview`, **Lighthouse CLI 12.6.0** with installed Chrome. Mobile uses Lighthouse's default simulated slow 4G and 4× CPU.
 
-| | First run | After fixes |
+| | Desktop | Mobile |
 |---|---|---|
-| Accessibility | 100 | **100** |
-| Best Practices | 100 | **100** |
-| SEO | 91 (no robots.txt) | **100** |
-| Cumulative Layout Shift | **0.42** ✗ | **0.076** (Lighthouse) / **0.06** (trace) |
-| LCP (trace, no throttling) | 103 ms | **81 ms** |
+| Performance | **99** | **86–89** (two runs) |
+| Accessibility | 100 | 100 |
+| Best Practices | 100 | 100 |
+| SEO | 100 | 100 |
+| First Contentful Paint | 0.6 s | 2.5 s |
+| Largest Contentful Paint | 0.8 s | 3.4–3.7 s |
+| Total Blocking Time | 0 ms | 0 ms |
+| **Cumulative Layout Shift** | **0** | **0** |
 
-The CLS fixes:
-- Wallet presence is detected synchronously, so the "Read-only" notice is there on first paint.
-- The ledger reserves its space while loading.
-- Core font faces load in parallel with `deployment.json` (capped at 800 ms), so the first paint doesn't re-wrap. The trace's CLS culprits had named the Public Sans and Plex Mono swaps.
+**History.**
+- *Desktop CLS:* 0.42 → 0.076 (first round).
+- *Mobile CLS:* 0.15, found in this round by reading `LayoutShift` events in a saved Lighthouse trace. `main` moved from y=170 to y=332 because wagmi's "reconnecting" state delayed the no-wallet notice. That and two smaller causes are fixed (DESIGN.md "Layout stability"). Mobile CLS is now **0**.
+- *Mobile FCP:* 3.1 s → 2.5 s after the first screen's font files were preloaded from the HTML head.
+- *Mobile LCP:* bounded by the chain reads the ledger needs before it can show anything.
+- *Lighthouse's "llms.txt" audit:* fails, and isn't applicable.
 
-Lighthouse's "llms.txt" audit still fails. It isn't applicable to a local DApp. The Performance *category* score isn't reported because the DevTools Lighthouse tool excludes it; the trace metrics above stand in for it.
+**Bundle (gzipped).**
+- Entry: 72.5 kB.
+- Shared viem/wagmi chunk: 66.9 kB.
+- The Merkle library is a separate **lazy** 35.9 kB chunk, loaded only on allowlisted elections and the admin panel.
+- `secp256k1` (12 kB) and `localBatchGatewayRequest` (27 kB) are static imports of viem/wagmi's core. Splitting them out would mean restructuring how wagmi is loaded, so I left them.
 
-**Bundle:**
-- The first production build had a 253 kB gzipped main chunk.
-- Replacing the `motion` library with about 200 lines of local hooks brought it to 202 kB.
-- Lazy-loading every route except the ledger left the entry at 72 kB plus shared vendor chunks (66 + 16 + 30 + 12 kB gzipped). Each other screen is 1.4–3.9 kB.
-- **Timing caveat.** The Lighthouse, trace, and scroll measurements in this section were taken on the build *before* the secret-ballot mode. That change added no animation. It grew the two largest chunks by about 0.8 kB gzipped in total (entry 72.05 → 72.18 kB, shared 65.70 → 66.32 kB, from the `592d7f4` clean-clone build). I didn't rerun Lighthouse after it.
+**Reduced motion:** the E2E reduced-motion test checks that visible tally digits equal the real values immediately and that `transition-duration` is `0s`.
 
-**Reduced motion:** E2E test 12 emulates `prefers-reduced-motion: reduce`. The visible tally digits equal the real values immediately, and `transition-duration` computes to `0s`.
-
-**Scroll smoothness:** `/e/1` (scroll-linked rail and chain line), Chrome DevTools at **4× CPU throttling**, 1280×720. A script scrolled the full page down and back in 240 steps, one per animation frame, recording every frame interval:
+**Scroll smoothness** (`PERF=1 npm run test:e2e -- e2e/perf.spec.ts`, Chrome, CDP CPU throttling ×4, 1280×720, full page scrolled down and back in 240 per-frame steps):
 ```
-{ scrollableHeight: 1047, frames: 239, meanMs: 4.17, p50: 4.2, p95: 4.3, p99: 4.3, maxMs: 4.3, over20ms: 0, over33ms: 0 }
+PERF /e/1 {"frames":239,"p50":4.2,"p95":4.3,"maxMs":12.5,"over16_7ms":0}
+PERF /e/6 {"frames":239,"p50":4.2,"p95":4.3,"maxMs":4.3,"over16_7ms":0}
 ```
-No frame exceeded 16.7 ms. **Caveat:** the ~4 ms cadence shows that this DevTools-controlled Chrome wasn't vsync-limited to 60 Hz. So this proves the per-frame work fits easily in a 60 fps budget, not what a particular laptop's compositor does. The scroll handler only reads one `getBoundingClientRect` and writes two transforms per frame.
+No frame exceeded 16.7 ms. **Caveat:** headless Chrome isn't vsync-limited, so this shows the per-frame work fits a 60 fps budget, not what a specific laptop's compositor does.
 
 ## Not executed, and why
-- **Real MetaMask extension.** None of the browsers available to me in this session have an extension wallet installed, and I didn't install one. The injected-connector path is exercised with a stub provider. One manual check remains for a person: import a test key into MetaMask, connect, vote, and switch networks in MetaMask.
-- **Touch devices.** There's no physical touch test. Tilt is mouse-only by design (`pointerType === "mouse"`), every card is a `<button>`, and the 360px layout is tested, but a real tap-through on a phone wasn't done.
-- **Firefox and Safari.** E2E runs in Chrome only.
-- **Testnet deployment.** I didn't deploy to a public network: the brief says to ask first.
+- **Firefox:** blocked by a missing system runtime (§4). Configured and ready.
+- **Real MetaMask extension:** blocked by policy (it requires creating a wallet and password in a third-party extension). There's a stub coverage plus a manual checklist (§4).
+- **Physical phones:** Pixel 7 and iPhone 14 are emulated (viewport, touch, user agent, WebKit for iPhone), not real devices.
+- **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider.
