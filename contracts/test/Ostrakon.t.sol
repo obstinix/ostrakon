@@ -790,6 +790,30 @@ contract ViewsTest is OstrakonBase {
         o.getElections(0, 101);
     }
 
+    function test_getVoterStatuses() public {
+        uint256 e1 = _open(); // alice registered
+        uint256 e2 = _create(); // alice not registered
+        _vote(e1, alice, 0);
+        assertEq(e2, 2);
+        (bool[] memory reg, bool[] memory voted) = o.getVoterStatuses(alice, 0, 10);
+        assertEq(reg.length, 2);
+        assertTrue(reg[0]);
+        assertTrue(voted[0]);
+        assertFalse(reg[1]);
+        assertFalse(voted[1]);
+        (reg, voted) = o.getVoterStatuses(alice, 1, 10);
+        assertEq(reg.length, 1);
+        assertFalse(reg[0]);
+        (reg, voted) = o.getVoterStatuses(alice, 0, 1);
+        assertEq(reg.length, 1);
+        assertTrue(voted[0]);
+        (reg, voted) = o.getVoterStatuses(alice, 2, 10);
+        assertEq(reg.length, 0);
+        assertEq(voted.length, 0);
+        vm.expectRevert(abi.encodeWithSelector(Ostrakon.PageTooLarge.selector, 101, 100));
+        o.getVoterStatuses(alice, 0, 101);
+    }
+
     function test_summaryReflectsState() public {
         uint256 id = _open();
         _vote(id, alice, 2);

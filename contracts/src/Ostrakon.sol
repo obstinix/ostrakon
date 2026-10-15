@@ -316,6 +316,26 @@ contract Ostrakon {
         }
     }
 
+    /// @notice `voter`'s registration and voting status for elections `offset+1 .. offset+limit`,
+    ///         aligned with `getElections(offset, limit)`. Lets a UI show per-election status in one call.
+    function getVoterStatuses(address voter, uint256 offset, uint256 limit)
+        external
+        view
+        returns (bool[] memory registered, bool[] memory voted)
+    {
+        if (limit > MAX_PAGE) revert PageTooLarge(limit, MAX_PAGE);
+        uint256 total = electionCount;
+        if (offset >= total) return (new bool[](0), new bool[](0));
+        uint256 end = offset + limit > total ? total : offset + limit;
+        registered = new bool[](end - offset);
+        voted = new bool[](end - offset);
+        for (uint256 i = offset; i < end; ++i) {
+            Election storage e = _elections[i + 1];
+            registered[i - offset] = e.registered[voter];
+            voted[i - offset] = e.voted[voter];
+        }
+    }
+
     /// @notice Candidate names, in index order.
     function getCandidates(uint256 electionId) external view exists(electionId) returns (string[] memory) {
         return _elections[electionId].candidates;
