@@ -63,18 +63,18 @@ INFO:Slither:. analyzed (1 contracts with 102 detectors), 3 result(s) found
 | S-2 | `timestamp` | `_effectivePhase`, `Ostrakon.sol:375,378` | **Accepted, by design.** Timestamp windows are a requirement. A block producer can open or close a window a few seconds early or late. The README and How-it-works screen say schedules are accurate to roughly one block. Don't use schedules where seconds matter. |
 | S-3 | `cyclomatic-complexity` (13) | `createElection` | **Accepted.** The complexity is the input validation itself: name, count, per-candidate emptiness, length, duplicates, schedule. Each branch has its own test (`CreateValidationTest`, fuzz `testFuzz_nameLengths`). Coverage shows 100% of branches. |
 
-### forge lint (built into `forge build`)
+### forge lint (`npm run lint:sol` runs `forge lint -D warnings`, so any warning fails)
 
 | Lint | Where | Triage |
 |---|---|---|
-| `block-timestamp` ×3 | same as S-1, S-2 | Accepted, see above. |
-| `require-revert-in-loop` ×3 | duplicate, empty, and too-long candidate checks in `createElection` | **Accepted.** Reverting on the first invalid candidate is the intended behavior. The loop is bounded (≤ 32). |
+| `block-timestamp` ×3 | same as S-1, S-2 | Accepted, see above. Suppressed inline with the reason, so the strict gate stays meaningful. |
+| `require-revert-in-loop` ×3 | duplicate, empty, and too-long candidate checks in `createElection` | **Accepted.** Reverting on the first invalid candidate is the intended behavior. The loop is bounded (≤ 32). Suppressed inline with the reason. |
 | `unsafe-typecast` ×2 | `uint64(block.number)`, `uint8(bestIdx)` | **Suppressed with justification inline.** The block number fits in 64 bits. `bestIdx < 32`. |
 | `uninitialized-local` ×3 | loop counters | **Fixed:** counters are now initialized explicitly. |
 
 ## Test-based assurance
 
-- 65 unit and fuzz tests plus 4 invariants (66 test functions; the invariants share one setup). 100% line, statement, branch, and function coverage on `Ostrakon.sol`. See VERIFICATION.md for the run.
+- 66 unit and fuzz tests plus one invariant suite with 4 invariants (forge reports 67 tests). 100% line, statement, branch, and function coverage on `Ostrakon.sol`. See VERIFICATION.md for the run.
 - Invariants run 256 runs × depth 64 by default (`profile.ci`: 1024 × 128):
   - sum of tallies = `totalVotes` = number of successful `vote` calls, and `totalVotes ≤ voterCount`
   - no address ever has more than one successful vote; `hasVoted` agrees with history; only registered addresses voted

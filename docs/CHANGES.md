@@ -1,0 +1,142 @@
+# What changed from the reference project, by report section
+
+This maps every change Ostrakon makes against the reference project to the section of the *Mini Project Report* that would need updating. Defect IDs (A-, C-, F-) refer to [AUDIT.md](AUDIT.md).
+
+## Abstract
+- "The contract lets an election administrator, who is the owner of the contract, create elections…" → **Anyone can create an election and becomes *that election's* admin.** There is no global owner (C-06).
+- "the contract has no election phases or closing time" → **Phases are Registration → Voting → Ended, forward-only, with optional binding timestamps.** `finalize` records a winner or a tie on chain (C-01, C-02).
+- "A web frontend built with React, React Router and the web3.js library connects … through the MetaMask wallet" → **The web app uses React 19 + TypeScript + Vite, viem, and wagmi.** It reads the chain **without a wallet**; a wallet is only needed to send transactions (F-01).
+- Keywords: replace Hardhat → **Foundry (forge, anvil)**, web3.js → **viem/wagmi**. Add *Slither, fuzz testing, invariant testing*.
+
+## 1. Introduction
+- The three parts stay, with these changes:
+  - Smart contract: `Voting.sol` → `Ostrakon.sol`
+  - Web frontend: four pages → six screens (Ledger, Election, Manage, New election, Audit, How it works) plus a persistent network bar
+  - Wallet integration: any EIP-1193 or EIP-6963 browser wallet, not only MetaMask
+- "The Voting Booth … refreshes them every six seconds" → **Updates are event-driven.** The contract's events are watched over WebSocket, with log polling as fallback. All tallies come from one `getTallies` call instead of one call per candidate (F-06).
+- The sample election table (Ananya / Rahul / Sneha) is now **seeded automatically** as "Student Council 2026" by `npm run dev`, together with four other elections in other phases.
+- The paragraph on what the design does and doesn't provide still holds, unchanged: no ballot secrecy, and eligibility is the admin's word. Ostrakon states it in the UI (How it works, the vote confirmation, the audit page) and in the README.
+
+## 2. Objectives
+Add:
+- 9. Enforce an election lifecycle (phases and timestamp windows) in contract code.
+- 10. Verify the contract with unit, fuzz, and invariant tests and static analysis, and run the whole app end to end in a browser.
+- 11. Make the audit trail and each voter's own vote verifiable from chain logs.
+
+Objective 6 (local Hardhat blockchain) → local **Anvil** chain, started by one command.
+
+## 3. Problem statement
+Still accurate. You could add: "…and the election's phases and closing time must also be enforced by code rather than by the administrator."
+
+## 4. Literature survey
+- §4.5 Security of smart contracts: "uses an onlyOwner modifier" → **a per-election admin check** (`NotAdmin` custom error). Add that Ostrakon uses **custom errors**, **no external calls**, **bounded loops** (≤ 32 candidates, ≤ 200 addresses per batch), and was checked with **Slither 0.11.6** (3 informational findings, all triaged in SECURITY.md).
+- §4.6 comparison table:
+  - *Voter identity*: "Wallet address registered by the owner" → "…registered by the election's admin".
+  - Add a row *Election lifecycle*: centralized = operator decides; this project = **contract-enforced phases and windows**.
+
+## 5. Requirement specification
+**§5.2 Software:**
+
+| Report | Ostrakon |
+|---|---|
+| Solidity 0.8.9 | Solidity 0.8.30 (`pragma ^0.8.24`) |
+| Hardhat + hardhat-toolbox (ethers v5) | Foundry 1.8 (forge, anvil, cast) |
+| React 17 (react-scripts), React Router 6 | React 19, Vite 8, React Router 8, TypeScript 6 |
+| web3.js 1.10 | viem 2 + wagmi 3 + TanStack Query 5 |
+| Hardhat network, chain id 1337 | Anvil, chain id **31337** |
+| (none) | Playwright (E2E), Vitest (unit), Slither (static analysis) |
+
+**§5.3 Functional requirements:**
+1. "The administrator (contract owner) can create an election … at least one candidate" → **anyone** can create one; **2–32 unique, non-empty candidates** of ≤ 64 bytes each; a name of ≤ 80 bytes; an optional voting window.
+2. "…register voter addresses … one at a time or in bulk, and can view the list" → registration happens **only during Registration**; bulk is capped at 200 per transaction (the UI splits longer lists automatically); the list is **public** (C-07).
+3. Add: the admin advances the phase. A set window binds the admin too.
+4. Unchanged, plus: votes only during Voting.
+5. "Anyone can view…" → now true **without a wallet** (F-01).
+6. "…shows the Admin Dashboard only to the owner" → each election's **Manage** screen is shown only to that election's admin.
+7. Add: anyone can **finalize** an ended election; the result (winner or tie) is stored and emitted.
+8. Add: anyone can verify their own vote from the `Voted` event (Audit → Verify my vote).
+
+## 6. Implementation
+**§6.1 Architecture.** Replace Figure 1 with the README diagram. Differences from the original:
+- Reads go **directly from the browser to the node** over HTTP or WebSocket, with no wallet in the path.
+- Writes are **simulated with `eth_call` before the wallet is asked to sign**.
+- The deployment address is loaded at runtime from `/deployment.json`.
+
+**§6.2 Roles and contract rules:**
+
+| Role | Functions | Enforced by |
+|---|---|---|
+| Anyone | `createElection`, `finalize`, `syncPhase`, all views | none (after `finalize`: phase must be Ended) |
+| Election admin | `registerVoter`, `registerVoters`, `advancePhase`, `transferAdmin` | `onlyAdmin(electionId)` → `NotAdmin` |
+| Registered voter | `vote(electionId, candidateIndex)` | phase == Voting, `registered`, `!voted` |
+
+The struct now also holds `admin`, `votingStart`, `votingEnd`, `storedPhase`, `finalized`, `tie`, `winner`, `createdBlock`, `totalVotes`, and `tallies[]` (an array replacing the `votesPerCandidate` mapping, so all tallies are one read). `exists` is gone: an id is valid when `1 ≤ id ≤ electionCount`.
+
+There are six events (three before): `ElectionCreated` (now includes admin, candidates, and the window), `VoterRegistered`, `PhaseChanged` (new), `Voted`, `Finalized` (new), and `AdminTransferred` (new).
+
+**§6.3 Contract listing.** Replace with `contracts/src/Ostrakon.sol`. Main differences:
+- custom errors
+- NatSpec
+- validation of every input
+- no redundant existence checks (C-11)
+- no zero writes
+- views `getElections`, `getTallies`, `getVoterStatuses`, `isRegistered`, `hasVoted`, `voterCount`, and paginated `getVoters`
+
+**§6.4 Frontend.** Replace the `Web3Context` listing with `web/src/chain/runtime.tsx` (clients, health checks, event watching), `tx.ts` (the transaction state machine), and `errors.ts` (`decodeError`).
+- Raw error strings are no longer shown to users (F-04).
+- The double provider and listener leak are gone (F-02, F-03).
+
+**§6.5 Local blockchain and deployment script.** Replace with `scripts/dev.ts`:
+- One command builds the contract, generates typed ABIs, starts Anvil, deploys, seeds, writes `web/public/deployment.json`, and starts the app.
+- Account #0 deploys. There is no global admin to get wrong (A-06).
+- Artifacts no longer live in a tool-managed folder (A-02).
+
+**§6.6 Deployment and running steps.** Replace steps 2–8 with:
+1. Install Foundry, then `npm install`.
+2. `npm run dev`.
+3. Open http://localhost:5173. Everything is readable straight away.
+4. To act: `npm run keys`, import a printed test key into a browser wallet, and press **Connect wallet**. The app offers to add or switch to the Anvil network.
+
+**§6.7 Test scenarios.** All 12 scenarios are now automated Foundry tests. Expected results now name custom errors, and the old revert-string column becomes:
+
+| No. | Ostrakon test | Enforced by |
+|---|---|---|
+| 1 | `test_R01_createWithThreeCandidates` | `createElection`, `ElectionCreated` |
+| 2 | `test_R02_nonAdminCannotRegister` | `NotAdmin` (create is open to anyone by design) |
+| 3 | `test_R03_emptyCandidateListReverts` | `CandidateCountOutOfRange` (minimum is now 2) |
+| 4 | `test_R04_registerVoter` | `registerVoter`, `VoterRegistered`, `getVoters` |
+| 5 | `test_R05_doubleRegistrationReverts` | `AlreadyRegistered` |
+| 6 | `test_R06_bulkSkipsRepeat` | `registerVoters` |
+| 7 | `test_R07_voteOnce` | `vote`, `Voted` |
+| 8 | `test_R08_doubleVoteReverts` | `AlreadyVoted` |
+| 9 | `test_R09_unregisteredVoteReverts` | `NotRegistered` |
+| 10 | `test_R10_invalidCandidateReverts` | `InvalidCandidate` |
+| 11 | `test_R11_nonexistentElectionReverts` | `ElectionNotFound` |
+| 12 | `test_R12_registrationIsPerElection` | `NotRegistered` |
+
+Add a paragraph: 67 Foundry tests in total, including fuzz tests and 4 invariants (tallies sum to the total, no double votes, phases never go backwards, finalize only after Ended). Coverage is 100% of lines, statements, branches, and functions. There are also 15 browser tests and a 24-assertion scripted lifecycle run. See VERIFICATION.md.
+
+## 7. Snapshots
+Replace Figures 3–6 with `docs/screenshots/`: `ledger.png`, `election.png`, `lifecycle.png`, `admin.png`, `audit.png`, `result.png`, `mobile-ledger.png`. Figure 2 (node running) can be replaced with the `npm run dev` console output, which lists the deployed address and the demo accounts and their roles.
+
+## 8. Conclusion and future scope
+Now implemented: "Election phases (Registration, Voting, Ended) and time windows enforced by block timestamps, with an on-chain winner function" and "Complete automated contract tests".
+
+Still future work, carried over:
+- commit–reveal or ZK ballot secrecy
+- identity verification
+- public testnet or L2 deployment
+- a professional audit
+
+New future work:
+- a Merkle-root allowlist for large electorates
+- two-step admin transfer
+- an indexer for long-lived public deployments
+
+The paragraph on limits stays accurate. Update "the owner-only voter list can also be reconstructed from the public registration events": in Ostrakon the voter list is simply **public**, and the app says so.
+
+## 9. SDG goals
+No change.
+
+## 10. References
+Replace [10] web3.js with viem (https://viem.sh) and wagmi (https://wagmi.sh), and [12] Hardhat with Foundry (https://getfoundry.sh). Add Slither (https://github.com/crytic/slither) and Playwright (https://playwright.dev).
