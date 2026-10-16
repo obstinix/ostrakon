@@ -88,9 +88,9 @@ contract OstrakonBase is Test {
 }
 
 /// Twelve core voting scenarios, end to end.
-contract ReportScenariosTest is OstrakonBase {
+contract CoreScenariosTest is OstrakonBase {
     // 1. Admin creates an election with three candidates -> ids 0,1,2; ElectionCreated emitted.
-    function test_R01_createWithThreeCandidates() public {
+    function test_S01_createWithThreeCandidates() public {
         vm.expectEmit(true, true, false, true);
         emit ElectionCreated(1, admin, "Class Rep", _three(), 0, 0, false, 0);
         uint256 id = _create();
@@ -104,7 +104,7 @@ contract ReportScenariosTest is OstrakonBase {
 
     // 2. Non-admin calls an admin function -> reverts NotAdmin.
     //    (Creating is now open to anyone; each creator administers only their own election.)
-    function test_R02_nonAdminCannotRegister() public {
+    function test_S02_nonAdminCannotRegister() public {
         uint256 id = _create();
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.NotAdmin.selector, id, mallory));
@@ -112,13 +112,13 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 3. Empty candidate list -> reverts (now: fewer than 2 candidates).
-    function test_R03_emptyCandidateListReverts() public {
+    function test_S03_emptyCandidateListReverts() public {
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.CandidateCountOutOfRange.selector, 0));
         o.createElection("x", new string[](0), 0, 0);
     }
 
     // 4. Admin registers a voter -> registered, event, appears in voter list.
-    function test_R04_registerVoter() public {
+    function test_S04_registerVoter() public {
         uint256 id = _create();
         vm.expectEmit(true, true, false, true);
         emit VoterRegistered(id, alice);
@@ -130,7 +130,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 5. Same voter registered twice -> reverts AlreadyRegistered.
-    function test_R05_doubleRegistrationReverts() public {
+    function test_S05_doubleRegistrationReverts() public {
         uint256 id = _create();
         _reg(id, alice);
         vm.prank(admin);
@@ -139,7 +139,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 6. Bulk registration with a repeated address -> stored once.
-    function test_R06_bulkSkipsRepeat() public {
+    function test_S06_bulkSkipsRepeat() public {
         uint256 id = _create();
         address[] memory b = new address[](3);
         b[0] = alice;
@@ -152,7 +152,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 7. Registered voter votes once -> tally +1, Voted emitted.
-    function test_R07_voteOnce() public {
+    function test_S07_voteOnce() public {
         uint256 id = _open();
         vm.expectEmit(true, true, false, true);
         emit Voted(id, alice, 1);
@@ -162,7 +162,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 8. Same voter votes again -> reverts AlreadyVoted; counts unchanged.
-    function test_R08_doubleVoteReverts() public {
+    function test_S08_doubleVoteReverts() public {
         uint256 id = _open();
         _vote(id, alice, 1);
         vm.prank(alice);
@@ -174,7 +174,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 9. Unregistered address votes -> reverts NotRegistered.
-    function test_R09_unregisteredVoteReverts() public {
+    function test_S09_unregisteredVoteReverts() public {
         uint256 id = _open();
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.NotRegistered.selector, mallory));
@@ -182,7 +182,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 10. Vote for a non-existent candidate index -> reverts InvalidCandidate.
-    function test_R10_invalidCandidateReverts() public {
+    function test_S10_invalidCandidateReverts() public {
         uint256 id = _open();
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.InvalidCandidate.selector, 3, 3));
@@ -190,7 +190,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 11. Vote / register on a non-existent election -> reverts ElectionNotFound.
-    function test_R11_nonexistentElectionReverts() public {
+    function test_S11_nonexistentElectionReverts() public {
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.ElectionNotFound.selector, 7));
         o.vote(7, 0);
         vm.expectRevert(abi.encodeWithSelector(Ostrakon.ElectionNotFound.selector, 7));
@@ -200,7 +200,7 @@ contract ReportScenariosTest is OstrakonBase {
     }
 
     // 12. Voter registered only for election 1 votes in election 2 -> NotRegistered.
-    function test_R12_registrationIsPerElection() public {
+    function test_S12_registrationIsPerElection() public {
         uint256 e1 = _open();
         uint256 e2 = _create();
         _advance(e2);

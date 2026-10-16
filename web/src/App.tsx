@@ -71,10 +71,16 @@ function Shell() {
       </main>
       <footer className="colophon">
         <p>
-          Ostrakon is a teaching DApp. Ballots are <strong>public</strong> on chain: see{" "}
+          Ostrakon is a teaching DApp. Votes are <strong>public</strong> on chain once counted: see{" "}
           <NavLink to="/how">How it works</NavLink>.
         </p>
-        <p className="muted">Developed by Piyush Pandey (obstinix).</p>
+        <p className="muted">
+          Developed by Piyush Pandey (obstinix).{" "}
+          <a href="https://github.com/obstinix/ostrakon" rel="noopener noreferrer">
+            Source on GitHub
+          </a>
+          , under the Boost Software License 1.0.
+        </p>
       </footer>
     </>
   );

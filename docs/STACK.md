@@ -3,14 +3,14 @@
 Each choice below says what I picked, why, and what I rejected.
 
 **Contracts: Solidity 0.8.30 (`pragma ^0.8.24`) with Foundry.**
-Foundry has first-class fuzz and invariant testing (`forge test`), coverage, gas snapshots, `forge fmt`, `forge lint`, and Anvil, all in one toolchain, with the tests written in Solidity next to the code. Hardhat 2 (used by the reference project) needs a JS test harness and plugins for the same things. Its artifact directory handling also caused AUDIT A-02. Hardhat 3 has Solidity tests, but Foundry's invariant tooling is more mature, and Slither supports Foundry projects directly.
+Foundry has first-class fuzz and invariant testing (`forge test`), coverage, gas snapshots, `forge fmt`, `forge lint`, and Anvil, all in one toolchain, with the tests written in Solidity next to the code. Hardhat 2 needs a JS test harness and plugins for the same things, and its managed artifact directory prunes files it doesn't own, which makes it easy to lose a deployment file. Hardhat 3 has Solidity tests, but Foundry's invariant tooling is more mature, and Slither supports Foundry projects directly.
 **Cost:** Foundry is a native binary, so it's one prerequisite (`foundryup`) on top of Node. `scripts/lib/foundry.ts` finds it on `PATH` or in `~/.foundry/bin` and prints install instructions if it's missing.
 
 **Solidity dependencies: forge-std as a pinned HTTPS tarball in `package.json`.**
 `npm install` fetches everything, with an integrity hash in the lockfile, so a clone needs no `git submodule` step. I rejected `forge install` (git submodules: easy to forget `--recursive`), the `forge-std` npm package (stale at 1.1.2), and a `github:` dependency (npm wrote a `git+ssh` URL into the lockfile, which breaks for anyone without GitHub SSH keys).
 
 **OpenZeppelin: only `MerkleProof` on chain, and its partner `@openzeppelin/merkle-tree` in the browser.**
-The contract has no tokens, no ether, and no external calls. Per-election admin replaces `Ownable` (a single global owner, AUDIT C-06), and the two-step hand-over is written directly against that per-election model, so nothing else from OZ earns its place. The Merkle allowlist is the exception: proof verification is easy to get subtly wrong (leaf/node domain separation, sorted pairs), so it uses OZ's audited `MerkleProof.verifyCalldata`. The app builds trees with OZ's `StandardMerkleTree` JS library, whose double-hashed leaf format is exactly what the contract checks. That pairing is the tested contract between browser and chain, and admins can produce compatible trees with OZ's own tooling. The JS library is loaded lazily (a 36 kB gzipped chunk), only on allowlisted elections and the admin panel.
+The contract has no tokens, no ether, and no external calls. Per-election admin replaces `Ownable` (a single global owner), and the two-step hand-over is written directly against that per-election model, so nothing else from OZ earns its place. The Merkle allowlist is the exception: proof verification is easy to get subtly wrong (leaf/node domain separation, sorted pairs), so it uses OZ's audited `MerkleProof.verifyCalldata`. The app builds trees with OZ's `StandardMerkleTree` JS library, whose double-hashed leaf format is exactly what the contract checks. That pairing is the tested contract between browser and chain, and admins can produce compatible trees with OZ's own tooling. The JS library is loaded lazily (a 36 kB gzipped chunk), only on allowlisted elections and the admin panel.
 I rejected a hand-rolled tree: it would need its own proof format and its own audit.
 
 **Local chain: Anvil.**
@@ -24,7 +24,7 @@ The app is a static SPA that reads a chain. It needs no server rendering, API ro
 - wagmi 3 handles the parts that are tedious and error-prone to hand-roll: connector lifecycle, EIP-6963 multi-wallet discovery, `accountsChanged` and `chainChanged` subscriptions with cleanup, and switch-or-add-chain.
 - Its `mock` connector is the basis of the test-only wallet.
 - I rejected RainbowKit, ConnectKit, and Web3Modal: they impose their own modal look, and the brief asks for our own connect UI.
-- I rejected web3.js: it's heavy (the reference bundle was 443 kB gzipped), untyped ABIs, and a weaker API.
+- I rejected web3.js: it's heavy (web3.js 1.x adds roughly 400 kB gzipped), untyped ABIs, and a weaker API.
 
 **Data fetching: TanStack Query.**
 It's already a wagmi peer dependency. Query keys sit under one `["ostrakon", address, chainId]` prefix, and every contract event invalidates that prefix. The UI derives everything from these queries instead of copying chain data into local state.

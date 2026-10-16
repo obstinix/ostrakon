@@ -233,7 +233,7 @@ e2e/                              Playwright tests
 docs/                             AUDIT, STACK, DESIGN, SECURITY, VERIFICATION, CHANGES
 ```
 
-## Credits
-Developed by Piyush Pandey (obstinix).
+## Author
+Developed by Piyush Pandey ([obstinix](https://github.com/obstinix)). Source: https://github.com/obstinix/ostrakon.
 
 Licensed under the [Boost Software License 1.0](LICENSE).

@@ -23,7 +23,7 @@ This covers the contract `contracts/src/Ostrakon.sol` and the trust model of the
 
 ## Design decisions with security impact
 
-- **Per-election admin instead of a global owner** (fixes AUDIT C-06). Compromising one admin key affects only that admin's elections.
+- **Per-election admin instead of a global owner** (no single owner key). Compromising one admin key affects only that admin's elections.
 - **Two-step admin hand-over.** `transferAdmin` only nominates (`AdminTransferStarted`). The nominee must call `acceptAdmin`, and until then the current admin keeps full control and can `cancelAdminTransfer` or nominate someone else. A mistyped or unreachable address can therefore never take or strand an election. This replaced the earlier single-step transfer; tests: `TwoStepAdminTest` (8). Mutant "transfer completes in one step" caught by 5 tests.
   - A lost admin key can still stall an unscheduled election in Voting (no one else can advance it), but can't corrupt it, and `finalize` is permissionless. Mitigation: set a `votingEnd` schedule.
 - **Forward-only phases.** `storedPhase` only increases. The effective phase is `max(storedPhase, schedulePhase)`, and time only moves forward, so the effective phase never decreases.
