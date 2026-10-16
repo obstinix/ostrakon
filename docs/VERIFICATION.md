@@ -196,7 +196,12 @@ Every test that can surface errors also scans the page text for raw-error patter
 Error: browserType.launch: spawn UNKNOWN
 PS> Start-Process firefox.exe → "The application has failed to start because its side-by-side configuration is incorrect."
 ```
-That error means a Microsoft Visual C++ runtime is missing. Installing a system runtime is an administrative change I didn't make. No regular Firefox is installed either. Anyone with the runtime (or on Linux or macOS) can run `npm run test:e2e:all`; the Firefox project is already configured.
+The Windows event log names the cause (`SideBySide` source):
+```
+Activation context generation failed for "...\ms-playwrightirefox-1555irefoxirefox.exe".
+Dependent Assembly mozglue,language="*",type="win32",version="1.0.0.0" could not be found.
+```
+An earlier version of this file blamed a missing Visual C++ runtime. That was wrong: `vcruntime140.dll` and `msvcp140.dll` ship in the Firefox folder. `mozglue` is Firefox's own library, and `mozglue.dll` is present and embeds the matching assembly manifest. Windows (build 26300 here) still fails to resolve it, and a separate `mozglue.manifest` beside the DLL didn't help (tried, then removed). `sxstrace` would show the exact probe, but it needs administrator rights. No regular Firefox is installed either. The Firefox project is configured, and anyone on another Windows build, Linux, or macOS can run `npm run test:e2e:all`.
 
 **The test connector is excluded from production builds.** In the clean clone:
 ```
@@ -265,7 +270,7 @@ PERF /e/6 {"frames":239,"p50":4.2,"p95":4.3,"maxMs":4.3,"over16_7ms":0}
 No frame exceeded 16.7 ms. **Caveat:** headless Chrome isn't vsync-limited, so this shows the per-frame work fits a 60 fps budget, not what a specific laptop's compositor does.
 
 ## Not executed, and why
-- **Firefox:** blocked by a missing system runtime (§4). Configured and ready.
+- **Firefox:** blocked: this Windows build can't resolve the Playwright Firefox's `mozglue` assembly (§4). Configured and ready.
 - **Real MetaMask extension:** blocked by policy (it requires creating a wallet and password in a third-party extension). There's a stub coverage plus a manual checklist (§4).
 - **Physical phones:** Pixel 7 and iPhone 14 are emulated (viewport, touch, user agent, WebKit for iPhone), not real devices.
 - **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider.
