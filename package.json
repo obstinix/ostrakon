@@ -4,6 +4,11 @@
   "private": true,
   "description": "Blockchain e-voting DApp: per-election admins, forward-only phases, verifiable on-chain audit trail.",
   "license": "BSL-1.0",
+  "author": "Piyush Pandey (https://github.com/obstinix)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/obstinix/ostrakon.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=20.19"

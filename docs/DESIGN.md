@@ -66,7 +66,7 @@ All faces are self-hosted through `@fontsource` and bundled by Vite, so the app 
 The scale runs from `--step--1` (13px) to `--step-4` (a fluid `clamp(2.25rem … 3.5rem)`). Body line-height is 1.55, and the measure is limited to 68ch.
 
 ## Layout and components
-- **The network bar is persistent and sticky.** It shows chain, live block, account, role, contract, and connect. At 720px and below, the contract item hides, but the contract address stays in the How-it-works text and the audit trail.
+- **The network bar is persistent and sticky.** It shows chain, live block, account, role, contract, and connect. At 720px and below, the contract item hides, but the contract address stays in the How-it-works text and the audit trail. Each label also sits above its value, and the chain id and the account's copy button hide, so every value fits its column at 360px (an E2E test checks nothing is clipped).
 - **The ledger is a numbered register,** not a card grid.
   - Rows get a clay left border plus a paper fill on hover or focus-within.
   - Each row expands in place to show its on-chain record: creation tx, block, admin, and window, each with a copy button.
