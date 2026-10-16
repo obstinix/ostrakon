@@ -139,6 +139,11 @@ INFO:Slither:. analyzed (3 contracts with 102 detectors), 3 result(s) found
 - Every write is simulated (`eth_call`) before the wallet is asked to sign, so predictable reverts never reach the wallet.
 - The test-only wallet connector is compiled in only when `VITE_E2E=1`. VERIFICATION.md shows the production bundle doesn't contain it.
 - Deployment info is validated at runtime: the expected chain id, and that code exists at the address. The app explains a stale or missing deployment instead of failing silently.
+- **Deploying elsewhere** (`npm run deploy:remote`) is a dry run unless `--yes`:
+  - It refuses Anvil's public test keys on any non-local chain.
+  - It writes only a separately given public RPC URL into `deployment.json`.
+  - It never prints the key or the deploy RPC URL, including in error messages.
+  - `npm run test:deploy` checks each guard (17 checks).
 - Transactions a wallet replaces are judged by viem's replacement reason: only a "repriced" (sped-up, same call) replacement counts as the user's action; "cancelled" or "replaced" with a different call is reported as not having happened, never as success. Waiting for a receipt times out after 3 minutes with curated copy telling the user to check the audit trail before retrying (so they don't double-submit).
 - With several wallets installed, EIP-6963 announcements are offered by name, instead of trusting whichever extension won `window.ethereum`.
 
