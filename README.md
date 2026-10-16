@@ -163,7 +163,7 @@ The contract has custom errors throughout, NatSpec on every external function, n
 | Coverage | `npm run coverage` | 100% lines, statements, branches, functions |
 | Frontend unit tests | `npm run test:web` | 21 passed |
 | Scripted lifecycle (open, secret, allowlist, hand-over) | `npm run lifecycle` | 49 assertions passed |
-| Browser E2E (Playwright) | `npm run test:e2e:all` | Chrome, WebKit, Pixel 7, iPhone 14: all pass. Firefox: blocked on this machine (see VERIFICATION.md) |
+| Browser E2E (Playwright) | `npm run test:e2e:all` | Chrome, Firefox, WebKit, Pixel 7, iPhone 14: all pass (Firefox here needs `PLAYWRIGHT_BROWSERS_PATH`, see VERIFICATION.md) |
 | Lighthouse 12.6 (production build) | see VERIFICATION.md | desktop 99 · 100 · 100 · 100, mobile 86 · 100 · 100 · 100, CLS 0 |
 | Remote deploy script guards | `npm run test:deploy` | 15 checks passed (local chain posing as chain 4242) |
 | Lint, typecheck, build | `npm run lint` · `npm run typecheck` · `npm run build` | clean |

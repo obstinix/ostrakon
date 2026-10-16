@@ -207,24 +207,24 @@ The test-only wallet is wagmi's `mock` connector, which forwards transactions to
 
 | Project | Engine / device | Result |
 |---|---|---|
-| chrome | installed Chrome, desktop | **22 passed**, 5 skipped |
-| webkit | WebKit 27.2 (Safari engine), desktop | **22 passed**, 5 skipped |
-| mobile-chrome | Pixel 7 emulation, touch | **23 passed**, 4 skipped |
-| mobile-safari | iPhone 14 emulation (WebKit), touch | **23 passed**, 4 skipped |
-| firefox | Playwright Firefox | **could not launch** (see below) |
+| chrome | installed Chrome, desktop | **23 passed**, 5 skipped |
+| firefox | Playwright Firefox 157, desktop | **23 passed**, 5 skipped (browser copied outside `ms-playwright`, see below) |
+| webkit | WebKit 27.2 (Safari engine), desktop | **23 passed**, 5 skipped |
+| mobile-chrome | Pixel 7 emulation, touch | **24 passed**, 4 skipped |
+| mobile-safari | iPhone 14 emulation (WebKit), touch | **24 passed**, 4 skipped |
 
 Skipped tests:
 - The screenshot and perf specs, which are opt-in.
 - The touch-only test on desktop.
 
-The 22 shared tests, plus the touch test:
+The 23 shared tests, plus the touch test:
 ```
 read-only without a wallet · locked wallet · wrong chain switch · rejected connection ·
 keyboard-only vote · unregistered account · admin: list preview, register, publish allowlist, run to result ·
 non-admin can't see admin controls · audit verify-my-vote · secret ballot (seal; wipe receipt and
 "Recover with my wallet"; declined signature falls back to random secret; reveal with stored receipt;
 reveal on a fresh device by pasting the receipt, wrong receipt refused) · create open + secret election ·
-360px no horizontal scroll on 7 routes · reduced motion · stale deployment · unreachable chain ·
+360px no horizontal scroll on 7 routes · 360px network bar values not clipped · reduced motion · stale deployment · unreachable chain ·
 missing deployment.json · allowlist voter loads list from the admin's link and votes with a proof ·
 allowlist outsider + tampered list · two-step admin hand-over · MetaMask 4902 add-chain-then-switch ·
 MetaMask lock (accounts emptied) drops to read-only · EIP-6963 chooser picks the right wallet ·
@@ -232,17 +232,21 @@ MetaMask lock (accounts emptied) drops to read-only · EIP-6963 chooser picks th
 ```
 Every test that can surface errors also scans the page text for raw-error patterns: `execution reverted`, `ContractFunction`, `Error:`, stack frames, long hex blobs, and viem `Details:`/`Version:` lines.
 
-**Firefox is blocked by the environment.** The Playwright Firefox build doesn't start on this machine:
+**Firefox runs once the browser lives outside `ms-playwright`.** Started from Playwright's default folder, the Firefox build fails at launch on this machine:
 ```
 Error: browserType.launch: spawn UNKNOWN
-PS> Start-Process firefox.exe → "The application has failed to start because its side-by-side configuration is incorrect."
-```
-The Windows event log names the cause (`SideBySide` source):
-```
-Activation context generation failed for "...\ms-playwrightirefox-1555irefoxirefox.exe".
+Windows event log (SideBySide): Activation context generation failed for "...\ms-playwright\firefox-1555\firefox\firefox.exe".
 Dependent Assembly mozglue,language="*",type="win32",version="1.0.0.0" could not be found.
 ```
-An earlier version of this file blamed a missing Visual C++ runtime. That was wrong: `vcruntime140.dll` and `msvcp140.dll` ship in the Firefox folder. `mozglue` is Firefox's own library, and `mozglue.dll` is present and embeds the matching assembly manifest. Windows (build 26300 here) still fails to resolve it, and a separate `mozglue.manifest` beside the DLL didn't help (tried, then removed). `sxstrace` would show the exact probe, but it needs administrator rights. No regular Firefox is installed either. The Firefox project is configured, and anyone on another Windows build, Linux, or macOS can run `npm run test:e2e:all`.
+What was ruled out, and what fixed it:
+- **Not a missing runtime.** An earlier version of this file blamed a missing Visual C++ runtime. That was wrong: `vcruntime140.dll` and `msvcp140.dll` ship in the Firefox folder, and `mozglue.dll` is present and embeds the matching assembly manifest.
+- **The binaries are fine.** The same folder copied elsewhere starts (`Mozilla Firefox 157.0`), while a copy placed inside `ms-playwright` fails again. The one difference found is an extra inherited AppContainer capability entry (`S-1-15-3-…`) in the `ms-playwright` folder's permissions. That's a property of this machine, not of the project.
+- **The fix.** Copy the browser elsewhere and point Playwright at the copy. No repository or system change is needed:
+  ```
+  cp -r ~/AppData/Local/ms-playwright/firefox-1555 <dir>/
+  PLAYWRIGHT_BROWSERS_PATH=<dir> npm run test:e2e -- --projects=firefox
+  ```
+  Result: **23 passed**, 5 skipped (the same opt-in and touch-only skips as desktop WebKit).
 
 **The test connector is excluded from production builds.** In the clean clone:
 ```
@@ -311,7 +315,6 @@ PERF /e/6 {"frames":239,"p50":4.2,"p95":4.3,"maxMs":4.3,"over16_7ms":0}
 No frame exceeded 16.7 ms. **Caveat:** headless Chrome isn't vsync-limited, so this shows the per-frame work fits a 60 fps budget, not what a specific laptop's compositor does.
 
 ## Not executed, and why
-- **Firefox:** blocked: this Windows build can't resolve the Playwright Firefox's `mozglue` assembly (§4). Configured and ready.
 - **Real MetaMask extension:** blocked by policy (it requires creating a wallet and password in a third-party extension). There's a stub coverage plus a manual checklist (§4).
 - **Physical phones:** Pixel 7 and iPhone 14 are emulated (viewport, touch, user agent, WebKit for iPhone), not real devices.
 - **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider. The script for it (`npm run deploy:remote`) exists and is checked locally (§3).
