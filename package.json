@@ -33,7 +33,9 @@
     "preview": "vite preview --config web/vite.config.ts",
     "keys": "tsx scripts/keys.ts",
     "chain:deploy": "tsx scripts/deploy-local.ts",
-    "test:e2e:all": "tsx scripts/e2e.ts --all"
+    "test:e2e:all": "tsx scripts/e2e.ts --all",
+    "deploy:remote": "tsx scripts/deploy-remote.ts",
+    "test:deploy": "tsx scripts/deploy-remote.check.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

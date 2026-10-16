@@ -165,6 +165,7 @@ The contract has custom errors throughout, NatSpec on every external function, n
 | Scripted lifecycle (open, secret, allowlist, hand-over) | `npm run lifecycle` | 49 assertions passed |
 | Browser E2E (Playwright) | `npm run test:e2e:all` | Chrome, WebKit, Pixel 7, iPhone 14: all pass. Firefox: blocked on this machine (see VERIFICATION.md) |
 | Lighthouse 12.6 (production build) | see VERIFICATION.md | desktop 99 · 100 · 100 · 100, mobile 86 · 100 · 100 · 100, CLS 0 |
+| Remote deploy script guards | `npm run test:deploy` | 15 checks passed (local chain posing as chain 4242) |
 | Lint, typecheck, build | `npm run lint` · `npm run typecheck` · `npm run build` | clean |
 | Gas | `npm run gas` / `npm run gas:report` | `.gas-snapshot` |
 
@@ -216,10 +217,23 @@ Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run test:e2e:all` | The same on Chrome, Firefox, WebKit, Pixel 7 and iPhone 14, each with a freshly seeded chain (`npx playwright install firefox webkit` first) |
 | `PERF=1 npm run test:e2e -- e2e/perf.spec.ts` | Scroll frame times at 4× CPU throttling |
 | `npm run lifecycle` | Scripted full lifecycle on an isolated chain on :8547 |
+| `npm run deploy:remote` | Deploy to another chain and write its `deployment.json` (dry run without `--yes`) |
+| `npm run test:deploy` | Check the deploy script's guards on a throwaway chain on :8548 |
 | `npm run lint` · `typecheck` · `build` · `coverage` · `gas` | |
 
 ## Hosting the static build
-`npm run build` produces a static site in `dist/`. It copies whatever is in `web/public/`, including the **local** `deployment.json` and demo allowlist file from your last `npm run dev`. To host it against another chain, replace `dist/deployment.json` with that chain's values: `chainId`, `chainName`, `rpcUrl`, optional `wsUrl`, `address`, `deployBlock`, `deployTx`, `deployedAt` (the shape is checked by `parseDeployment` in `web/src/chain/deployment.ts`). Also publish any allowlist files at the links you set on chain. No rebuild is needed, because the app reads `deployment.json` at runtime. Deploying to a public network isn't scripted here.
+`npm run build` produces a static site in `dist/`. It copies whatever is in `web/public/`, including the **local** `deployment.json` and demo allowlist file from your last `npm run dev`. To host it against another chain, replace `dist/deployment.json` with that chain's values: `chainId`, `chainName`, `rpcUrl`, optional `wsUrl`, `address`, `deployBlock`, `deployTx`, `deployedAt` (the shape is checked by `parseDeployment` in `web/src/chain/deployment.ts`). Also publish any allowlist files at the links you set on chain. No rebuild is needed, because the app reads `deployment.json` at runtime.
+
+`npm run deploy:remote` deploys the contract to another chain and writes that file for you. It is a dry run unless you pass `--yes`, and it never seeds demo data:
+```bash
+OSTRAKON_DEPLOY_RPC=<rpc url> OSTRAKON_DEPLOY_KEY=<0x private key> OSTRAKON_PUBLIC_RPC=<rpc url for browsers> OSTRAKON_CHAIN_NAME=<name> npm run deploy:remote -- --out dist/deployment.json
+```
+- **Key handling:** the key is read from the environment and never printed. The script refuses Anvil's public test keys on any chain but the local one.
+- **RPC privacy:** only `OSTRAKON_PUBLIC_RPC` (plus optional `OSTRAKON_PUBLIC_WS`) goes into the file, so an RPC URL carrying an API key stays private.
+- **Before sending:** it prints the chain, deployer, balance, and estimated cost, and stops if the balance can't cover it.
+- **After sending:** it checks that code exists at the new address.
+
+`npm run test:deploy` checks all of this against a throwaway local chain.
 
 ## Repository map
 ```

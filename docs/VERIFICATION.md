@@ -156,6 +156,29 @@ Two cross-checks come from this run:
 - Proofs built by the browser's Merkle code are accepted on chain.
 - Commitments computed by the browser's `commitmentHash` reveal successfully.
 
+### Remote deploy script (`npm run test:deploy`)
+This starts an anvil on :8548 with chain id 4242, so `scripts/deploy-remote.ts` treats it as a non-local network and every guard is active. Nothing leaves the machine.
+```
+ok    no RPC: refused
+ok    malformed key: refused
+ok    Anvil test key on a non-local chain: refused
+ok    no public RPC on a non-local chain: refused
+ok    unfunded deployer: refused
+ok    dry run: estimates, sends nothing, writes nothing
+ok    --yes: deploys and writes the record
+ok    record matches the app's deployment schema
+ok    record names the chain
+ok    record carries the public RPC, not the deploy RPC
+ok    the deploy RPC's API key appears nowhere
+ok    the private key appears nowhere
+ok    contract code exists at the recorded address
+ok    deployTx created that address
+ok    deployBlock matches the receipt
+
+15 checks passed
+```
+No deployment to a public network was made: that needs the owner's go-ahead, a funded key, and an RPC provider.
+
 ## 4. Browser runs of the real app (`npm run test:e2e[:all]`)
 `scripts/e2e.ts` builds once with `VITE_E2E=1` into `dist-e2e/` and serves it on :4174. Then, **for each Playwright project**, it:
 1. starts a fresh anvil on :8546
@@ -273,4 +296,4 @@ No frame exceeded 16.7 ms. **Caveat:** headless Chrome isn't vsync-limited, so t
 - **Firefox:** blocked: this Windows build can't resolve the Playwright Firefox's `mozglue` assembly (§4). Configured and ready.
 - **Real MetaMask extension:** blocked by policy (it requires creating a wallet and password in a third-party extension). There's a stub coverage plus a manual checklist (§4).
 - **Physical phones:** Pixel 7 and iPhone 14 are emulated (viewport, touch, user agent, WebKit for iPhone), not real devices.
-- **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider.
+- **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider. The script for it (`npm run deploy:remote`) exists and is checked locally (§3).

@@ -34,3 +34,6 @@ web/public/deployment.json
 dist-e2e/
 web/public/allowlists/
 dist-e2e/allowlists/
+
+# records written by npm run deploy:remote
+deployment.*.json
