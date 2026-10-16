@@ -31,7 +31,7 @@ export function NetworkBar() {
           <dt>Chain</dt>
           <dd>
             <span className={`dot ${live ? "dot-live" : "dot-down"}`} aria-hidden="true" />
-            {runtime.chain.name} <span className="mono muted">{runtime.chain.id}</span>
+            {runtime.chain.name} <span className="mono muted netbar-chainid">{runtime.chain.id}</span>
           </dd>
         </div>
         <div>

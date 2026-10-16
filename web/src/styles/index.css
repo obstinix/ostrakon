@@ -1293,9 +1293,24 @@ select:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--s-1) var(--s-3);
   }
+  /* Label above value: at 360px the Connect button leaves each column about 100px, too narrow
+     for a label and value side by side. Long values (role summaries) end in an ellipsis. */
   .netbar-items > div {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     overflow: hidden;
     white-space: nowrap;
+  }
+  .netbar-items dd {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The chain id and the account's copy button don't fit a ~97px column; your wallet already
+     shows your own address, and the full value stays in the title. */
+  .netbar-chainid,
+  .netbar .copy {
+    display: none;
   }
   .netbar-contract {
     display: none !important;

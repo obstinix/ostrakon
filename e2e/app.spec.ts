@@ -417,6 +417,33 @@ test("360px: no horizontal scroll, ledger rows stack", async ({ page }) => {
   await expect(page.locator(".ledger-cols")).toBeHidden();
 });
 
+test("360px: network bar values are not clipped", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  // Returns the labels of values cut off by their column. `only` limits the check.
+  const clipped = (only?: string[]) =>
+    page.locator(".netbar-items > div:visible").evaluateAll(
+      (items, only) =>
+        items
+          .map((d) => ({ label: d.querySelector("dt")?.textContent ?? "", d, dd: d.querySelector("dd")! }))
+          .filter(({ label }) => !only || only.includes(label))
+          // Either the value overflows itself, or the item cuts the value off.
+          .filter(({ d, dd }) => dd.scrollWidth > dd.clientWidth + 1 || d.scrollWidth > d.clientWidth + 1)
+          .map(({ label }) => label),
+      only,
+    );
+
+  await asMock(page, 3);
+  await page.goto("/");
+  await expect(page.getByTestId("role")).toHaveText("Read-only");
+  await expect(page.getByTestId("block-number")).toHaveText(/#\d+/);
+  expect(await clipped()).toEqual([]);
+
+  await connect(page);
+  await expect(page.getByTestId("role")).not.toHaveText("Read-only");
+  // A long role summary may end in an ellipsis by design; the others must fit.
+  expect(await clipped(["Chain", "Block", "Account"])).toEqual([]);
+});
+
 test("reduced motion: final values render immediately, no transitions", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => {
