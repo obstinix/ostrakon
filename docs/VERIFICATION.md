@@ -1,11 +1,11 @@
 # Verification
 
-Every result below came from running the command shown. Outputs are trimmed to the relevant lines and otherwise unedited. Where a result comes from an earlier commit, it says so and why it still applies.
+Every result below came from running the command shown. On 2026-10-16 the repository history was rewritten to remove third-party attribution text. File contents at the tip didn't change, but every commit got a new hash, and the commits cited here use the new hashes. Outputs are trimmed to the relevant lines and otherwise unedited. Where a result comes from an earlier commit, it says so and why it still applies.
 
 **Environment:** Windows 11, Node v22.23.1, npm 10.9.8, Foundry 1.8.5 (forge/anvil; SHA-256 of the release zip checked against the published `.sha256`), solc 0.8.30. Browsers: Playwright 1.64.1 driving installed Chrome, plus Playwright WebKit 27.2 for desktop and iPhone 14. Slither 0.11.6, Lighthouse 12.6.0 (CLI).
 
-## Latest run (`459b83a`, 2026-10-16)
-This is the full suite run again in the working checkout at `459b83a`, not in a fresh clone:
+## Latest run (`091bd33`, 2026-10-16)
+This is the full suite run again in the working checkout at `091bd33`, not in a fresh clone:
 ```
 npm run lint           exit=0
 npm run typecheck      exit=0
@@ -18,17 +18,17 @@ npm audit              found 0 vulnerabilities
 npm run test:e2e       chrome 23 passed · webkit 23 passed · mobile-chrome 24 passed · mobile-safari 24 passed
                        firefox 23 passed (PLAYWRIGHT_BROWSERS_PATH, see §4)
 ```
-Lighthouse 12.6.0 was measured at `74ccb4a`. The web app and E2E code haven't changed since:
+Lighthouse 12.6.0 was measured at `16edb00`. The web app and E2E code haven't changed since:
 ```
 mobile   86 · 100 · 100 · 100 (FCP 2.5 s, LCP 3.7 s, CLS 0, TBT 0 ms)
 desktop  99 · 100 · 100 · 100 (FCP 0.6 s, LCP 0.8 s, CLS 0, TBT 0 ms)
 ```
 On mobile, 88% of LCP is render delay. The Ledger heading waits for the JS, the core fonts (capped at 800 ms, to keep CLS at 0), and `deployment.json` on a throttled connection. Painting before the fonts arrive would trade layout stability for a lower LCP, so it's left as is.
-The clean-clone results below are from `b063b6f`.
+The clean-clone results below are from `9614c9d`.
 
 ## 1. Clean clone: install, lint, typecheck, tests, build
 
-Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at the final code commit **`b063b6f`**. Before installing, the clone had no `web/src/generated/`, no `deployment.json`, and no allowlist files: everything is generated.
+Fresh `git clone https://github.com/obstinix/ostrakon` into an empty folder, at the final code commit **`9614c9d`**. Before installing, the clone had no `web/src/generated/`, no `deployment.json`, and no allowlist files: everything is generated.
 
 ```
 npm ci                 exit=0   (239 packages)
@@ -44,8 +44,8 @@ npm audit --omit=dev   found 0 vulnerabilities
 ```
 
 Earlier clean-clone runs found three real problems, all fixed before this one:
-- **TS2717** at `748ccff`: two E2E specs declared the test-hook type differently.
-- **A moderate `uuid` advisory**: `@openzeppelin/merkle-tree` → `@metamask/abi-utils` → `@metamask/utils` → `uuid` 9.0.1. npm's suggested fix downgrades the Merkle library, so instead an `overrides` pin to 11.1.1 was added (`89a7950`). It was re-tested with the allowlist unit, lifecycle, and E2E tests.
+- **TS2717** at `e1abf52`: two E2E specs declared the test-hook type differently.
+- **A moderate `uuid` advisory**: `@openzeppelin/merkle-tree` → `@metamask/abi-utils` → `@metamask/utils` → `uuid` 9.0.1. npm's suggested fix downgrades the Merkle library, so instead an `overrides` pin to 11.1.1 was added (`1b689a4`). It was re-tested with the allowlist unit, lifecycle, and E2E tests.
 - **The mobile layout shift** described in §6.
 
 ### Contract tests: unit, fuzz, invariant (`npm run test:contracts`)
@@ -265,7 +265,7 @@ testConnector-*.js      (positive control: present in the E2E build)
 
 ### Manual checks
 - **One-command run.** `npm run dev` deploys to `0x5fbdb2315678afecb367f032d93f642f64180aa3 (block 1)`, seeds seven elections, writes `web/public/deployment.json` and `web/public/allowlists/7.json`, prints the account and role table, and serves the app.
-- **Chain restart under an open app** (§5) was measured at `163133a`. The health-check code it exercised hasn't changed since. E2E tests for stale, unreachable, and missing-deployment states run on every commit.
+- **Chain restart under an open app** (§5) was measured at `93b8c16`. The health-check code it exercised hasn't changed since. E2E tests for stale, unreachable, and missing-deployment states run on every commit.
 
 ### Manual MetaMask checklist (not executed)
 Onboarding a real MetaMask means creating a wallet and setting a password inside a third-party extension. That's outside what I'll do on someone's behalf, so these steps are left for a person. Its protocol behavior is covered by the stub-provider tests above.
@@ -277,8 +277,8 @@ Onboarding a real MetaMask means creating a wallet and setting a password inside
 6. Lock MetaMask. The app drops to read-only.
 7. Election 7: load the list from the admin's link, then vote. One transaction registers and votes.
 
-## 5. Restarting the local chain under an open app (measured at `163133a`)
-1. **Killed only anvil.** This found two bugs, both fixed in `163133a`:
+## 5. Restarting the local chain under an open app (measured at `93b8c16`)
+1. **Killed only anvil.** This found two bugs, both fixed in `93b8c16`:
    - Detection originally took 5–14 s because of viem retries.
    - After a *fresh* anvil started, the page never recovered. viem's `watchBlockNumber` only emits block numbers greater than the last, so a chain restarting at 0 was invisible.
    - **Fix:** a 1 s no-retry health poll that handles outage, recovery, and backwards block numbers, and re-checks contract code every 10 s.
@@ -286,7 +286,7 @@ Onboarding a real MetaMask means creating a wallet and setting a password inside
 3. Killed with the page open: `{ detectedAfterMs: 1528, mainStillHasContent: true }`. Fresh anvil: `{ staleDetectedAfterMs: 965, block: "#0" }`.
 
 ## 6. Performance, layout stability, reduced motion, scroll
-Production build (`npm run build` at `b063b6f`), `vite preview`, **Lighthouse CLI 12.6.0** with installed Chrome. Mobile uses Lighthouse's default simulated slow 4G and 4× CPU.
+Production build (`npm run build` at `9614c9d`), `vite preview`, **Lighthouse CLI 12.6.0** with installed Chrome. Mobile uses Lighthouse's default simulated slow 4G and 4× CPU.
 
 | | Desktop | Mobile |
 |---|---|---|
