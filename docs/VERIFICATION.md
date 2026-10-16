@@ -1,11 +1,11 @@
 # Verification
 
-Every result below came from running the command shown. On 2026-10-16 the repository history was rewritten to remove third-party attribution text. File contents at the tip didn't change, but every commit got a new hash, and the commits cited here use the new hashes. Outputs are trimmed to the relevant lines and otherwise unedited. Where a result comes from an earlier commit, it says so and why it still applies.
+Every result below came from running the command shown. On 2026-10-16 the repository history was rewritten to remove third-party attribution text. File contents at the tip didn't change, but every commit got a new hash, and the commits cited here use the new hashes. A scan of every object reachable from a fresh clone (49 commits, 195 trees, 270 blobs) finds none of the removed text. Text replacement can't change images, though. Nine older versions of `ledger.png`, `lifecycle.png` and `mobile-ledger.png`, reachable only through older commits, still show it as pixels. The current screenshots don't. Removing those would need another history rewrite. Outputs are trimmed to the relevant lines and otherwise unedited. Where a result comes from an earlier commit, it says so and why it still applies.
 
 **Environment:** Windows 11, Node v22.23.1, npm 10.9.8, Foundry 1.8.5 (forge/anvil; SHA-256 of the release zip checked against the published `.sha256`), solc 0.8.30. Browsers: Playwright 1.64.1 driving installed Chrome, plus Playwright WebKit 27.2 for desktop and iPhone 14. Slither 0.11.6, Lighthouse 12.6.0 (CLI).
 
-## Latest run (`091bd33`, 2026-10-16)
-This is the full suite run again in the working checkout at `091bd33`, not in a fresh clone:
+## Latest run (`bf303ef`, 2026-10-16)
+This is the full suite run again in the working checkout at `bf303ef` (after the history rewrite), not in a fresh clone:
 ```
 npm run lint           exit=0
 npm run typecheck      exit=0
