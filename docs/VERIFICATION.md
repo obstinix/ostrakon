@@ -4,22 +4,26 @@ Every result below came from running the command shown. Outputs are trimmed to t
 
 **Environment:** Windows 11, Node v22.23.1, npm 10.9.8, Foundry 1.8.5 (forge/anvil; SHA-256 of the release zip checked against the published `.sha256`), solc 0.8.30. Browsers: Playwright 1.64.1 driving installed Chrome, plus Playwright WebKit 27.2 for desktop and iPhone 14. Slither 0.11.6, Lighthouse 12.6.0 (CLI).
 
-## Latest run (`74ccb4a`, 2026-10-16)
-This is the full suite run again in the working checkout at code commit `74ccb4a`, not in a fresh clone. It came after the developer credit, the 360 px network bar fix, and the remote deploy script:
+## Latest run (`459b83a`, 2026-10-16)
+This is the full suite run again in the working checkout at `459b83a`, not in a fresh clone:
 ```
 npm run lint           exit=0
 npm run typecheck      exit=0
 npm test               exit=0   (111 Foundry + 21 Vitest)
 npm run coverage       exit=0   (100% lines 280/280, statements 338/338, branches 78/78, functions 42/42)
-npm run build          exit=0
+npm run build          exit=0   (test connector in dist/: 0 files)
 npm run lifecycle      exit=0   (49 assertions)
-npm run test:deploy    exit=0   (15 checks; 17 since the leak fix)
+npm run test:deploy    exit=0   (17 checks)
 npm audit              found 0 vulnerabilities
-npm run test:e2e:all   chrome 23 passed · webkit 23 passed · mobile-chrome 24 passed · mobile-safari 24 passed
-                       firefox: browserType.launch: spawn UNKNOWN (environment, see §4)
-Lighthouse 12.6.0      mobile 86 · 100 · 100 · 100 (FCP 2.5 s, LCP 3.7 s, CLS 0, TBT 0 ms)
-                       desktop 99 · 100 · 100 · 100 (FCP 0.6 s, LCP 0.8 s, CLS 0, TBT 0 ms)
+npm run test:e2e       chrome 23 passed · webkit 23 passed · mobile-chrome 24 passed · mobile-safari 24 passed
+                       firefox 23 passed (PLAYWRIGHT_BROWSERS_PATH, see §4)
 ```
+Lighthouse 12.6.0 was measured at `74ccb4a`. The web app and E2E code haven't changed since:
+```
+mobile   86 · 100 · 100 · 100 (FCP 2.5 s, LCP 3.7 s, CLS 0, TBT 0 ms)
+desktop  99 · 100 · 100 · 100 (FCP 0.6 s, LCP 0.8 s, CLS 0, TBT 0 ms)
+```
+On mobile, 88% of LCP is render delay. The Ledger heading waits for the JS, the core fonts (capped at 800 ms, to keep CLS at 0), and `deployment.json` on a throttled connection. Painting before the fonts arrive would trade layout stability for a lower LCP, so it's left as is.
 The clean-clone results below are from `b063b6f`.
 
 ## 1. Clean clone: install, lint, typecheck, tests, build
