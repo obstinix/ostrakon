@@ -1,6 +1,7 @@
 // `npm run test:deploy`: exercises scripts/deploy-remote.ts against a throwaway anvil that pretends to be
 // another network (chain id 4242), so every guard for real chains is active. Nothing leaves this machine.
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -82,6 +83,42 @@ check(r.code === 1 && r.out.includes("OSTRAKON_DEPLOY_RPC"), "no RPC: refused", 
 
 r = run({ OSTRAKON_DEPLOY_RPC: rpc, OSTRAKON_DEPLOY_KEY: "0x1234" });
 check(r.code === 1 && r.out.includes("32-byte private key"), "malformed key: refused", r.out);
+
+// Above the curve order: the crypto library's own error would print the key as a number.
+const badKey = `0x${"f".repeat(64)}`;
+r = run({ OSTRAKON_DEPLOY_RPC: rpc, OSTRAKON_DEPLOY_KEY: badKey });
+check(
+  r.code === 1 && r.out.includes("not a valid secp256k1") && !r.out.includes("ffffffff") && !/\n\s+at /.test(r.out),
+  "out-of-range key: refused without echoing it or a stack trace",
+  r.out,
+);
+
+// An RPC that answers eth_chainId and fails everything else: viem's error names the request URL.
+const broken = createServer((req, res) => {
+  let body = "";
+  req.on("data", (c: Buffer) => (body += c.toString()));
+  req.on("end", () => {
+    const { id, method } = JSON.parse(body) as { id: number; method: string };
+    const reply =
+      method === "eth_chainId"
+        ? { jsonrpc: "2.0", id, result: toHex(CHAIN) }
+        : { jsonrpc: "2.0", id, error: { code: -32000, message: "upstream unavailable" } };
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(reply));
+  });
+});
+await new Promise<void>((ok) => broken.listen(PORT + 1, "127.0.0.1", ok));
+r = run({
+  OSTRAKON_DEPLOY_RPC: `http://127.0.0.1:${PORT + 1}/?apikey=do-not-leak`,
+  OSTRAKON_DEPLOY_KEY: generatePrivateKey(),
+  OSTRAKON_PUBLIC_RPC: publicRpc,
+});
+broken.close();
+check(
+  r.code === 1 && !r.out.includes("do-not-leak") && !/\n\s+at /.test(r.out),
+  "RPC failure mid-run: reported without the deploy RPC's API key or a stack trace",
+  r.out,
+);
 
 r = run({ OSTRAKON_DEPLOY_RPC: rpc, OSTRAKON_DEPLOY_KEY: anvilKey0, OSTRAKON_PUBLIC_RPC: publicRpc });
 check(r.code === 1 && r.out.includes("Anvil test key"), "Anvil test key on a non-local chain: refused", r.out);

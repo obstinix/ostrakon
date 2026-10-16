@@ -13,7 +13,7 @@ npm test               exit=0   (111 Foundry + 21 Vitest)
 npm run coverage       exit=0   (100% lines 280/280, statements 338/338, branches 78/78, functions 42/42)
 npm run build          exit=0
 npm run lifecycle      exit=0   (49 assertions)
-npm run test:deploy    exit=0   (15 checks)
+npm run test:deploy    exit=0   (15 checks; 17 since the leak fix)
 npm audit              found 0 vulnerabilities
 npm run test:e2e:all   chrome 23 passed · webkit 23 passed · mobile-chrome 24 passed · mobile-safari 24 passed
                        firefox: browserType.launch: spawn UNKNOWN (environment, see §4)
@@ -179,6 +179,8 @@ This starts an anvil on :8548 with chain id 4242, so `scripts/deploy-remote.ts` 
 ```
 ok    no RPC: refused
 ok    malformed key: refused
+ok    out-of-range key: refused without echoing it or a stack trace
+ok    RPC failure mid-run: reported without the deploy RPC's API key or a stack trace
 ok    Anvil test key on a non-local chain: refused
 ok    no public RPC on a non-local chain: refused
 ok    unfunded deployer: refused
@@ -193,8 +195,9 @@ ok    contract code exists at the recorded address
 ok    deployTx created that address
 ok    deployBlock matches the receipt
 
-15 checks passed
+17 checks passed
 ```
+The two leak checks were added after a review found that the first version of the script let library errors through. An out-of-range key crashed inside `@noble/curves` and printed the key as a decimal number. A failing RPC printed viem's error, which names the request URL, so an API key in that URL was printed 5 times in one run. Both checks fail against that version.
 No deployment to a public network was made: that needs the owner's go-ahead, a funded key, and an RPC provider.
 
 ## 4. Browser runs of the real app (`npm run test:e2e[:all]`)

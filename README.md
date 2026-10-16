@@ -165,7 +165,7 @@ The contract has custom errors throughout, NatSpec on every external function, n
 | Scripted lifecycle (open, secret, allowlist, hand-over) | `npm run lifecycle` | 49 assertions passed |
 | Browser E2E (Playwright) | `npm run test:e2e:all` | Chrome, Firefox, WebKit, Pixel 7, iPhone 14: all pass (Firefox here needs `PLAYWRIGHT_BROWSERS_PATH`, see VERIFICATION.md) |
 | Lighthouse 12.6 (production build) | see VERIFICATION.md | desktop 99 · 100 · 100 · 100, mobile 86 · 100 · 100 · 100, CLS 0 |
-| Remote deploy script guards | `npm run test:deploy` | 15 checks passed (local chain posing as chain 4242) |
+| Remote deploy script guards | `npm run test:deploy` | 17 checks passed (local chain posing as chain 4242) |
 | Lint, typecheck, build | `npm run lint` · `npm run typecheck` · `npm run build` | clean |
 | Gas | `npm run gas` / `npm run gas:report` | `.gas-snapshot` |
 
@@ -228,7 +228,7 @@ Details: [docs/SECURITY.md](docs/SECURITY.md).
 ```bash
 OSTRAKON_DEPLOY_RPC=<rpc url> OSTRAKON_DEPLOY_KEY=<0x private key> OSTRAKON_PUBLIC_RPC=<rpc url for browsers> OSTRAKON_CHAIN_NAME=<name> npm run deploy:remote -- --out dist/deployment.json
 ```
-- **Key handling:** the key is read from the environment and never printed. The script refuses Anvil's public test keys on any chain but the local one.
+- **Key handling:** the key is read from the environment and never printed, even in errors: an invalid key or a failing RPC is reported with the key and the deploy RPC URL redacted. The script refuses Anvil's public test keys on any chain but the local one.
 - **RPC privacy:** only `OSTRAKON_PUBLIC_RPC` (plus optional `OSTRAKON_PUBLIC_WS`) goes into the file, so an RPC URL carrying an API key stays private.
 - **Before sending:** it prints the chain, deployer, balance, and estimated cost, and stops if the balance can't cover it.
 - **After sending:** it checks that code exists at the new address.
