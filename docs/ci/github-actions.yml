@@ -1,0 +1,66 @@
+# Proposed CI workflow. INACTIVE: GitHub only runs workflows under .github/workflows/.
+# It has not been run. To enable it (this uses GitHub Actions, a hosted service):
+#   git mv docs/ci/github-actions.yml .github/workflows/ci.yml
+# Every command below passes locally; see docs/VERIFICATION.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.5
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run coverage
+      - run: npm run build
+      - run: npm run lifecycle
+      - run: npm run test:deploy
+      - run: npm audit
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.5
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      # PW_CHANNEL="" uses Playwright's Chromium instead of an installed Chrome.
+      - run: npm run test:e2e:all
+        env:
+          PW_CHANNEL: ""
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

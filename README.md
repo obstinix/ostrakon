@@ -245,6 +245,7 @@ web/src/routes/                   screens
 web/src/styles/tokens.css         every design token
 e2e/                              Playwright tests
 docs/                             AUDIT, STACK, DESIGN, SECURITY, VERIFICATION, CHANGES
+docs/ci/github-actions.yml        proposed CI workflow (inactive until moved to .github/workflows/)
 ```
 
 ## Author

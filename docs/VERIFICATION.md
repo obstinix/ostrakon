@@ -316,5 +316,6 @@ No frame exceeded 16.7 ms. **Caveat:** headless Chrome isn't vsync-limited, so t
 
 ## Not executed, and why
 - **Real MetaMask extension:** blocked by policy (it requires creating a wallet and password in a third-party extension). There's a stub coverage plus a manual checklist (§4).
+- **CI:** a workflow is prepared in `docs/ci/github-actions.yml`, but it isn't enabled, because GitHub Actions is a hosted service that needs the owner's approval. It has never run. Enabling it means moving it to `.github/workflows/`. Its commands are the ones in this file, but the Linux runner and Playwright's bundled Chromium (`PW_CHANNEL=""`) are untested.
 - **Physical phones:** Pixel 7 and iPhone 14 are emulated (viewport, touch, user agent, WebKit for iPhone), not real devices.
 - **Testnet deployment:** not done, because the brief says to ask first, and it needs a funded key and an RPC provider. The script for it (`npm run deploy:remote`) exists and is checked locally (§3).
